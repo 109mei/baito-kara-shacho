@@ -1,5 +1,6 @@
 // 街の絵（PixiJS）。ルール本体の写しを読んで描くだけで、状態は持たない。
 // 文字は描かない（文字は HTML 側に置く）。タッチも受け取らない。
+import 'pixi.js/unsafe-eval'; // 実行時にコードを組み立てない版（制限の強い場所でも絵が出るように）
 import { Application, Container, Graphics } from 'pixi.js';
 import type { Slot } from '../core/types';
 
