@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "time": { "slotsPerDay": 16, "firstHour": 6, "daysPerMonth": 30, "maxWorkSlots": 12, "endMonth": 24 },
+  "player": { "startCash": 100000, "living": 105000, "restartCash": 100000 },
+  "job": { "wage": 1100, "hours": 5, "startSlot": 3 },
+  "helper": { "wage": 1100, "slowFactor": 1.5, "habitHours": 40, "max": 2, "candidatesPerMonth": 2 },
+  "mats": { "unitPrice": 100, "perTrip": 100, "startTarget": 40 },
+  "offer": { "answerDays": 3, "fluct": 0.1 },
+  "quality": { "great": 0.9, "ok": 1, "redo": 1.2, "greatFame": 0.2, "failFame": 2, "idleFame": 1 },
+  "craft": {
+    "tool": { "price": 60000, "assembleFactor": 0.5 },
+    "sellBonus": 10,
+    "small": { "mat": 2, "price": 800, "cut": 8, "assemble": 20, "finish": 7, "qtyMin": 5, "qtyMax": 10, "dueMin": 4, "dueMax": 7, "capBase": 40, "capFame": 0.5, "fameWeight": 1 },
+    "order": { "mat": 8, "price": 3800, "cut": 25, "assemble": 70, "finish": 30, "qtyMin": 1, "qtyMax": 3, "dueMin": 5, "dueMax": 9, "fameFrom": 20, "capBase": 10, "capFame": 0.5, "capMax": 60, "fameWeight": 3 },
+    "fameDiv": 10
+  },
+  "handy": {
+    "tool": { "price": 60000 },
+    "sellBonus": 3,
+    "tidy": { "mat": 0, "price": 3500, "work": 120, "move": 60, "dueMin": 2, "dueMax": 5, "capBase": 6, "capFame": 0.3334, "fameWeight": 1 },
+    "clean": { "mat": 5, "price": 9000, "work": 150, "move": 60, "dueMin": 3, "dueMax": 6, "fameFrom": 10, "capBase": 4, "capFame": 0.5, "capMax": 30, "fameWeight": 2 },
+    "fameDiv": 3
+  },
+  "dev": {
+    "fee": 0.3,
+    "fameCap": 40,
+    "soldPerFame": 40,
+    "hitMin": 0.8,
+    "hitMax": 1.2,
+    "outsource": { "price": 80000, "timeFactor": 0.75, "salesFactor": 1.3 },
+    "small": { "hours": 120, "price": 500, "base": 30, "perFame": 3, "tail": 0.5 },
+    "normal": { "hours": 400, "price": 1200, "base": 60, "perFame": 8, "tail": 0.6 }
+  }
+}
