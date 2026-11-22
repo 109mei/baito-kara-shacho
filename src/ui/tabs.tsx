@@ -1,6 +1,6 @@
 // 5つのタブの中身。状態は読むだけで、書き換えは命令（send）で行う。
 import { useState } from 'react';
-import { BIZ_LIST, canSetSlot, devForecast, helperFactor, jobCap, minutesUntil, orderMinutesLeft, unitStd, workSlots } from '../core/game';
+import { BIZ_LIST, canSetSlot, dayInfo, devForecast, helperFactor, jobCap, minutesUntil, orderMinutesLeft, unitStd, workSlots } from '../core/game';
 import type { Biz, GameState, JobKey, Order, OrderBiz, Slot } from '../core/types';
 import { balance as b } from '../data/schema';
 import { useGame } from '../store/useGame';
@@ -49,6 +49,50 @@ function OrderCard({ s, o, guide }: { s: GameState; o: Order; guide?: boolean })
   );
 }
 
+// 今日：時間割を1本の帯で見せる。1日を進めると、針が朝から夜へ動く
+function Today({ s }: { s: GameState }) {
+  const setTab = useGame((st) => st.setTab);
+  const pulse = useGame((st) => st.pulse);
+  const busy = useGame((st) => st.busy);
+  const calm = useGame((st) => st.prefs.calm);
+  const d = dayInfo(s.day, b);
+  const slots = d.weekday ? s.templates.weekday : s.templates.holiday;
+  const count: Partial<Record<Slot, number>> = {};
+  for (const x of slots) count[x] = (count[x] ?? 0) + 1;
+  const kinds = (Object.keys(count) as Slot[]).filter((k) => k !== 'rest');
+  return (
+    <button className="daycard" data-today onClick={() => setTab('plan')}>
+      <span className="today-head">
+        <b>今日</b>
+        {kinds.map((k) => <span key={k} className="today-kind"><i className={`dot s-${k}`} />{SLOT_NAME[k]} {count[k]}時間</span>)}
+        {kinds.length === 0 && <span className="today-kind">休み</span>}
+      </span>
+      <span className="strip" data-hint={HINT.strip}>
+        {slots.map((x, i) => <i key={i} className={`s-${x}`} />)}
+        {pulse > 0 && !busy && !calm && <b key={pulse} className="needle" />}
+      </span>
+      <span className="today-hours num"><span>6時</span><span>10時</span><span>14時</span><span>18時</span><span>22時</span></span>
+    </button>
+  );
+}
+
+// 今月ここまで：3つの数字だけを帯で見せる（くわしくは「お金」）
+function MonthSoFar({ s }: { s: GameState }) {
+  const setTab = useGame((st) => st.setTab);
+  const a = s.acc;
+  const jobPay = a.jobH * b.job.wage;
+  const wages = s.helpers.reduce((sum, h) => sum + h.workedH * b.helper.wage, 0);
+  const sales = a.salesCraft + a.salesHandy;
+  const expect = s.cash + jobPay + s.receivable - wages - b.player.living;
+  return (
+    <button className="stats" data-sofar onClick={() => setTab('money')}>
+      <span className="stat"><small>今月の売上</small><b className="num">{yen(sales)}</b></span>
+      <span className="stat"><small>アルバイト</small><b className="num">{yen(jobPay)}</b></span>
+      <span className={`stat ${expect < 0 ? 'neg' : ''}`}><small>月末の見込み</small><b className="num">{yen(expect)}</b></span>
+    </button>
+  );
+}
+
 export function HomeTab({ s, guide }: { s: GameState; guide: string | null }) {
   const offers = s.orders.filter((o) => o.status === 'offer').sort((x, y) => x.answerBy - y.answerBy || x.id - y.id);
   const active = s.orders.filter((o) => o.status === 'active').sort((x, y) => x.deadline - y.deadline || x.id - y.id);
@@ -92,7 +136,9 @@ export function HomeTab({ s, guide }: { s: GameState; guide: string | null }) {
           <div className="chips"><Chip icon="yen" hint="net">手取り {yen(t.net)}/本</Chip></div>
         </div>
       ))}
-      {nothing && <div className="empty"><Icon name="clock" size={40} /></div>}
+      {nothing && <div className="empty"><Icon name="clock" size={34} /><span>話を待っている</span></div>}
+      <Today s={s} />
+      <MonthSoFar s={s} />
     </>
   );
 }
@@ -308,6 +354,8 @@ export function MoneyTab({ s }: { s: GameState }) {
   const exportSave = useGame((st) => st.exportSave);
   const importSave = useGame((st) => st.importSave);
   const toast = useGame((st) => st.toast);
+  const prefs = useGame((st) => st.prefs);
+  const setPrefs = useGame((st) => st.setPrefs);
   const [io, setIo] = useState<string | null>(null);
   const a = s.acc;
   const jobPay = a.jobH * b.job.wage;
@@ -360,6 +408,20 @@ export function MoneyTab({ s }: { s: GameState }) {
           <span className="seg">
             <button className={!s.autoQuality ? 'on' : ''} onClick={() => send({ type: 'setAuto', value: false })}>自分で</button>
             <button className={s.autoQuality ? 'on' : ''} data-auto onClick={() => send({ type: 'setAuto', value: true })}>おまかせ</button>
+          </span>
+        </div>
+        <div className="row">
+          <span>音</span>
+          <span className="seg">
+            <button className={prefs.sound ? 'on' : ''} data-sound="on" onClick={() => setPrefs({ sound: true })}>あり</button>
+            <button className={!prefs.sound ? 'on' : ''} data-sound="off" onClick={() => setPrefs({ sound: false })}>なし</button>
+          </span>
+        </div>
+        <div className="row">
+          <span>動き</span>
+          <span className="seg">
+            <button className={!prefs.calm ? 'on' : ''} data-calm="off" onClick={() => setPrefs({ calm: false })}>ふつう</button>
+            <button className={prefs.calm ? 'on' : ''} data-calm="on" onClick={() => setPrefs({ calm: true })}>少なめ</button>
           </span>
         </div>
         <div className="actions">

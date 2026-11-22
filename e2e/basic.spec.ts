@@ -39,6 +39,7 @@ test('スマホ縦画面で開いて、最初の仕事でお金が入り、再�
 });
 
 test('タブを切り替え、時間割を塗り、月末の締めまで進める', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' }); // 動きを少なくする設定（まとめて進める待ち時間がなくなる）
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -102,4 +103,32 @@ test('個人開発：手でやる操作（タップ）で作品を始められ�
   expect(st.project).not.toBeNull();
   await page.locator('[data-tabbtn="home"]').click();
   await shot(page, '12-dev-home');
+});
+
+test('1週：1日ずつ進み、途中で止められる。街の絵は夜にも切り替わる', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await shot(page, '13-title');
+  await page.locator('[data-pick="dev"]').click();
+  await page.locator('[data-adv="day"]').click();
+  await page.waitForTimeout(1050); // 1日を通して見せている途中（夕方〜夜）
+  await shot(page, '14-dusk');
+  await page.waitForTimeout(1200);
+  await page.locator('[data-adv="week"]').click();
+  await expect(page.locator('[data-adv="stop"]')).toBeVisible();
+  await shot(page, '15-running');
+  await page.locator('[data-adv="stop"]').click();
+  await expect(page.locator('[data-adv="day"]')).toBeVisible();
+  const st = await page.evaluate(() => window.__game!.state());
+  expect(st.day).toBeGreaterThanOrEqual(2);
+  expect(st.day).toBeLessThan(9);
+  // 音と動きの設定を切り替えられる
+  await page.locator('[data-tabbtn="money"]').click();
+  await page.locator('[data-sound="off"]').click();
+  await page.locator('[data-calm="on"]').click();
+  await page.reload();
+  await page.locator('[data-tabbtn="money"]').click();
+  await expect(page.locator('[data-calm="on"]')).toHaveClass(/on/);
+  await expect(page.locator('[data-sound="off"]')).toHaveClass(/on/);
 });

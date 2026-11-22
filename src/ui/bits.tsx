@@ -15,6 +15,7 @@ export const DOW = ['月', '火', '水', '木', '金', '土', '日'];
 
 // 長押しで出す、言葉の意味（1行）。現実で使われている言葉をそのまま使う。
 export const HINT: Record<string, string> = {
+  strip: '今日の時間割：左が朝、右が夜',
   cash: '現金：いま手元にあって、すぐ払えるお金',
   days: '現金が、いまの出費であと何日もつか',
   fame: '知名度：上がると、届く話が増える',
@@ -37,6 +38,7 @@ export const HINT: Record<string, string> = {
 
 const PATHS: Record<string, ReactNode> = {
   home: <path d="M4 11.5 12 5l8 6.5V20h-5v-5h-6v5H4z" />,
+  tool: <path d="M15 5.500a4 4 0 0 0-4.600 5.300L5 16.200a2 2 0 1 0 2.800 2.800l5.400-5.400A4 4 0 0 0 18.500 9l-2.600 2.600-2.500-2.500z" />,
   work: <><rect x="3.5" y="8" width="17" height="11" rx="2" /><path d="M9 8V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3.5 13h17" /></>,
   plan: <><rect x="4" y="5.5" width="16" height="14" rx="2" /><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" /></>,
   people: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.6-3 2.7-4.5 5.5-4.5s4.900 1.500 5.500 4.500M16 6.500a2.500 2.500 0 1 1 0 5M17 14.700c1.900.500 3.100 1.900 3.500 4.300" /></>,

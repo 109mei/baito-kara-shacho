@@ -60,3 +60,35 @@ export const SaveStore = {
     }
   },
 };
+
+// 遊び方の好み（音・動き）。ゲームの進み具合とは別に持つ
+export interface Prefs {
+  sound: boolean;
+  calm: boolean; // 動きを少なくする
+}
+const PREFS_KEY = 'baito-kara-shacho/prefs';
+export function loadPrefs(): Prefs {
+  let calm = false;
+  try {
+    calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    /* 調べられない環境では、ふつうの動きにする */
+  }
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<Prefs>;
+      return { sound: p.sound !== false, calm: typeof p.calm === 'boolean' ? p.calm : calm };
+    }
+  } catch {
+    /* 読めなければ初期の値 */
+  }
+  return { sound: true, calm };
+}
+export function savePrefs(p: Prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch {
+    /* 保存できない環境でも、遊びは止めない */
+  }
+}

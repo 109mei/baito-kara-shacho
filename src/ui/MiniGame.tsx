@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import type { Quality } from '../core/types';
 import { useGame } from '../store/useGame';
 import { Icon } from './bits';
+import { buzz, sfx } from './sfx';
 
 const LIMIT = 10_000;
 const LABEL: Record<Quality, string> = { great: '上出来', ok: 'できた', redo: 'やり直し' };
@@ -27,6 +28,7 @@ function OrderGame({ color, onDone }: { color: string; onDone: (q: Quality) => v
   const tap = (n: number) => {
     if (n < next) return;
     if (n === next) {
+      sfx.hit();
       if (n === 4) onDone(miss === 0 ? 'great' : miss === 1 ? 'ok' : 'redo');
       setNext(n + 1);
     } else {
@@ -74,6 +76,8 @@ function TraceGame({ onDone }: { onDone: (q: Quality) => void }) {
       return false;
     });
     if (!changed) return;
+    sfx.hit();
+    buzz(6);
     setClean(next);
     if (next.every(Boolean)) {
       const t = performance.now() - start.current;
@@ -111,6 +115,8 @@ function TapGame({ onDone }: { onDone: (q: Quality) => void }) {
     const p = pos.current;
     const kind = p >= 0.44 && p <= 0.56 ? 'core' : p >= 0.32 && p <= 0.68 ? 'hit' : 'miss';
     const next = [...hits, kind] as typeof hits;
+    if (kind === 'miss') sfx.miss();
+    else sfx.hit();
     setHits(next);
     if (next.length === 3) {
       const inZone = next.filter((h) => h !== 'miss').length;
@@ -139,6 +145,10 @@ export function MiniGame() {
   const finish = (q: Quality) => {
     if (finished.current || !mini) return;
     finished.current = true;
+    if (q === 'great') sfx.great();
+    else if (q === 'redo') sfx.miss();
+    else sfx.accept();
+    buzz(q === 'great' ? 18 : 10);
     setResult(q);
     setTimeout(() => {
       mini.done(q);
