@@ -399,7 +399,15 @@
     "eventRate": 0.45,
     "rivalStall": 60000,
     "rivalShop": 150000,
-    "rivalCut": 0.2
+    "rivalCut": 0.2,
+    "lock": 40000,
+    "cam": 60000,
+    "guardFee": 2000,
+    "secEach": 0.3,
+    "burgle": 0.01,
+    "burgleUnit": 100000,
+    "burgleLoss": 0.5,
+    "burgleRefund": 0.8
   },
   "law": {
     "lawyer": 300000,

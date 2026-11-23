@@ -15,7 +15,13 @@ export interface Shop {
   rivals: number; rivalPrice: number; // 近くの競合の数と、その値段（こちらの値下げや繁盛に、2か月ほど遅れて反応する）
   cut: number; hot: number; // 値下げが続いた月、よく売れた月
   d: Tally; m: Tally; // きのう（最後に開けた日）と、今月の数字
+  sec?: { lock: boolean; cam: boolean; guard: boolean }; // 防犯：鍵と金庫・カメラ・警備会社との契約
+  hit?: number; // 空き巣に狙われている月（1か月前に知らせが出る）
 }
+// 防犯の効き目：鍵と金庫 30%、カメラ 30%、警備会社との契約 30% を足した値
+export const secOf = (z: Shop, bal: Balance) => ((z.sec?.lock ? 1 : 0) + (z.sec?.cam ? 1 : 0) + (z.sec?.guard ? 1 : 0)) * bal.town.secEach;
+// 空き巣に狙われる見込み（月）：1% ×（店に置いている現金 ÷ 10万円）。店に置いている現金＝その月の売上
+export const burgleChance = (z: Shop, bal: Balance) => Math.min(1, bal.town.burgle * (z.m.sales / bal.town.burgleUnit));
 export interface Staff {
   id: number; name: string; bio: string;
   skill: number; service: number; honest: number; lead: number; grow: number; // 技能、接客、まじめさ、まとめる力、育つ速さ

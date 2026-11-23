@@ -32,7 +32,7 @@ export const BalanceSchema = z.object({
   deal: rec(['minJobs', 'value', 'visits', 'months', 'visitMins', 'relPerVisit', 'penalty', 'relLoss', 'maxDeals', 'rate']),
   works: rec(['setup', 'rent', 'cut', 'build', 'finish', 'machine', 'defect', 'standard', 'bulk', 'bulkOff', 'wholesale']),
   bus: rec(['lecture', 'lectureHours', 'price', 'min', 'fare', 'flow', 'share', 'perBus', 'fareK', 'fuel', 'near', 'boost']),
-  town: rec(['insure', 'refund', 'eventRate', 'rivalStall', 'rivalShop', 'rivalCut']),
+  town: rec(['insure', 'refund', 'eventRate', 'rivalStall', 'rivalShop', 'rivalCut', 'lock', 'cam', 'guardFee', 'secEach', 'burgle', 'burgleUnit', 'burgleLoss', 'burgleRefund']),
   biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
   police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { custK, newEco, PHASES, turnMonth } from '../src/core/eco';
-import { applyCount, apartFill, apartIncome, arriveRate, askOne, dayWorks, lineDay, makeStaff, newFirm, newShop, openConds, procCaps, rivalsReact, seen, serve } from '../src/core/shop';
+import { applyCount, apartFill, apartIncome, arriveRate, askOne, burgleChance, secOf, dayWorks, lineDay, makeStaff, newFirm, newShop, openConds, procCaps, rivalsReact, seen, serve } from '../src/core/shop';
 import { apply, createGame, fromSave, fuzz, poiActions, rank, toSave } from '../src/core/sim';
 import { balance as b } from '../src/data/schema';
 
@@ -403,5 +403,48 @@ describe('許認可（建設・運送・警備）', () => {
     // 月が変わると、許可のある種類の話が届く
     monthEnd(s);
     expect(s.tr.bids.map((q) => q.kind).sort()).toEqual(['build', 'guard']);
+  });
+});
+
+describe('狙われる側（空き巣と防犯）', () => {
+  it('見込みは 1% ×（その月の売上 ÷ 10万円）。防犯は1つで3割ずつ効く', () => {
+    const z = newShop('shop', lot.id, 0, 0, 0, b);
+    z.m.sales = 300000;
+    expect(burgleChance(z, b)).toBeCloseTo(0.03);
+    expect(secOf(z, b)).toBe(0);
+    z.sec = { lock: true, cam: true, guard: false };
+    expect(secOf(z, b)).toBeCloseTo(0.6);
+  });
+  it('街の中で：知らせの次の月末に取られる。保険に入っていると8割が戻る。防犯は店で買える', () => {
+    const run = (insured: boolean) => {
+      const s = createGame(7, city, b);
+      s.cash = 2000000;
+      s.clock = 10 * 60;
+      go(s, kind('office'), 'lecture');
+      s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+      go(s, lot, 'stall');
+      monthEnd(s);
+      s.eco.insured = insured;
+      s.biz[0].hit = s.eco.hist.length; // 今月 狙われる
+      s.biz[0].m.sales = 200000;
+      const money = s.cash + s.bank;
+      const evs = monthEnd(s);
+      const rec = (evs.find((e) => e.type === 'month') as { rec: { notes: string[]; cost: number } }).rec;
+      return { s, rec, lost: money - (s.cash + s.bank) };
+    };
+    const a = run(false);
+    const c = run(true);
+    expect(a.rec.notes.some((t) => t.includes('空き巣にあい'))).toBe(true);
+    expect(a.s.biz[0].hit).toBeUndefined();
+    const loss = 200000 * b.town.burgleLoss;
+    expect(a.lost - c.lost).toBe(loss * b.town.burgleRefund - b.town.insure);
+    // 防犯を買う
+    const s = a.s;
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    go(s, lot, 'secLock');
+    go(s, lot, 'secCam');
+    go(s, lot, 'secGuard');
+    expect(s.biz[0].sec).toEqual({ lock: true, cam: true, guard: true });
+    expect(secOf(s.biz[0], b)).toBeCloseTo(0.9);
   });
 });

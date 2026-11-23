@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
-import { apartFill, apartIncome, apartPrice, arriveRate, askOne, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
+import { apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
 import { DEAL_NAME, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
@@ -184,7 +184,7 @@ export function permitConds(s: GameState, kind: 'build' | 'haul' | 'guard', bal:
   ];
 }
 // 月の家賃と光熱費（求人サイトの掲載料と保険料も、ここに入れて払う）
-export const rentOf = (s: GameState, bal: Balance) => s.biz.reduce((a, z) => a + z.rent, 0) * bal.time.daysPerMonth + (s.firm.post?.site ? bal.staff.siteFee : 0) + (s.eco.insured ? bal.town.insure : 0);
+export const rentOf = (s: GameState, bal: Balance) => s.biz.reduce((a, z) => a + z.rent, 0) * bal.time.daysPerMonth + (s.firm.post?.site ? bal.staff.siteFee : 0) + (s.eco.insured ? bal.town.insure : 0) + s.biz.filter((z) => z.sec?.guard).length * bal.town.guardFee;
 // 月末の払いに足りない額（自分の分と、会社の分）
 export function shortOf(s: GameState, bal: Balance): { me: number; corp: number } {
   const b = billsOf(s.eco, monthLiving(s, bal), wagesOf(s.firm, bal), rentOf(s, bal), bal);
@@ -388,6 +388,9 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         return [
           { id: 'manage', label: '工房を見る（1時間）', sub: !crewN ? '人がいない' : z.boss ? '工場長に任せてある' : z.seen >= dayOf(s) ? 'きょうは見た' : 'きょうは、まだ見ていない', ok: crewN > 0 && !z.boss && z.seen < dayOf(s), why: !crewN ? '人がいない' : z.boss ? '任せてある' : 'きょうは見た' },
           ...PROC_NAMES.map((n, i) => ({ id: `mach${i}`, label: `「${n}」の機械を買う`, sub: z.mach[i] ? '入れてある' : `${yen(bal.works.machine)}／1日 ${caps[i]}個（いちばん少ない工程が、作れる数になる）`, ok: !z.mach[i] && money >= bal.works.machine, why: z.mach[i] ? '入れてある' : 'お金が足りない' })),
+          { id: 'secLock', label: '鍵と金庫をつける', sub: z.sec?.lock ? 'つけてある' : `${yen(bal.town.lock)}／空き巣にあう見込みが3割へる`, ok: !z.sec?.lock && funds(s) >= bal.town.lock, why: z.sec?.lock ? 'つけてある' : 'お金が足りない' },
+          { id: 'secCam', label: '防犯カメラをつける', sub: z.sec?.cam ? 'つけてある' : `${yen(bal.town.cam)}／さらに3割へる`, ok: !z.sec?.cam && funds(s) >= bal.town.cam, why: z.sec?.cam ? 'つけてある' : 'お金が足りない' },
+          { id: 'secGuard', label: z.sec?.guard ? '警備会社との契約をやめる' : '警備会社と契約する', sub: `月 ${yen(bal.town.guardFee)}／さらに3割へる${z.hit !== undefined ? '　いま、近くで空き巣が増えている' : ''}`, ok: true },
           { id: 'closeShop', label: '工房をたたむ', sub: `保証金 ${yen(z.deposit)} が戻る`, ok: true },
         ];
       }
@@ -401,6 +404,9 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
           { id: 'priceDown', label: '値段を下げる', sub: `いま 相場の ${Math.round(z.price * 100)}%`, ok: z.price > 0.75, why: 'これ以上は下げられない' },
           { id: 'ad', label: '広告を出す', sub: `${yen(S.ad)}／認知 ${Math.round(z.aware)}（評判 ${Math.round(z.repute)}）`, ok: money >= S.ad, why: 'お金が足りない' },
           { id: 'mix', label: s.eco.mix ? '汚れたお金を混ぜるのをやめる' : '売上に汚れたお金を混ぜる', sub: `売上の2割まで、きれいになる／税務調査の見込み ${Math.round(auditChance(s.eco, bal) * 100)}%・見つかると没収`, ok: true, crime: true },
+          { id: 'secLock', label: '鍵と金庫をつける', sub: z.sec?.lock ? 'つけてある' : `${yen(bal.town.lock)}／空き巣にあう見込みが3割へる`, ok: !z.sec?.lock && funds(s) >= bal.town.lock, why: z.sec?.lock ? 'つけてある' : 'お金が足りない' },
+          { id: 'secCam', label: '防犯カメラをつける', sub: z.sec?.cam ? 'つけてある' : `${yen(bal.town.cam)}／さらに3割へる`, ok: !z.sec?.cam && funds(s) >= bal.town.cam, why: z.sec?.cam ? 'つけてある' : 'お金が足りない' },
+          { id: 'secGuard', label: z.sec?.guard ? '警備会社との契約をやめる' : '警備会社と契約する', sub: `月 ${yen(bal.town.guardFee)}／さらに3割へる${z.hit !== undefined ? '　いま、近くで空き巣が増えている' : ''}`, ok: true },
           { id: 'closeShop', label: '店をたたむ', sub: z.deposit ? `保証金 ${yen(z.deposit)} が戻る` : `道具が ${yen(bal.biz.stall / 2)} で売れる`, ok: true },
         ];
       }
@@ -655,6 +661,22 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
     s.earned += me.income;
     s.eco.m.sales += me.income;
     if (s.tr.broken) addCredit(s.eco, -10 * s.tr.broken, bal); // 受けて守れなかった話は、信用も下げる
+    // 空き巣：先月 知らせのあった店が狙われる。防犯の効き目のぶんだけ防げる。保険に入っていると、損の8割が戻る
+    const br = monthRng(s.seed, 9000 + ended);
+    const theft: string[] = [];
+    for (const z of s.biz) {
+      if (z.hit === undefined || z.hit > ended) continue;
+      delete z.hit;
+      if (br() < secOf(z, bal)) {
+        theft.push('店が空き巣に狙われたが、防犯で防いだ');
+        continue;
+      }
+      const loss = Math.round(z.m.sales * bal.town.burgleLoss);
+      const back = s.eco.insured ? Math.round(loss * bal.town.burgleRefund) : 0;
+      bizIn(s, back - loss);
+      s.eco.m.cost += loss - back;
+      theft.push(`店が空き巣にあい、${yen(loss)} 取られた${back ? `。保険で ${yen(back)} 戻った` : '（保険に入っていれば8割が戻っていた）'}`);
+    }
     const out = closeMonth(s.eco, { cash: s.cash, bank: s.bank, living: monthLiving(s, bal), wages, rent, hasBiz: active, audit: mr() }, bal);
     if (out.caught > 0) {
       // 混ぜたお金が見つかった：没収され、手配される
@@ -676,6 +698,14 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
         out.rec.money += back;
         out.rec.notes.push(`保険で ${yen(back)} 戻った（入っていなければ 0）`);
       } else if (back > 0) out.rec.notes.push(`${EVENTS[hit[0]].name}で売上が減った。保険に入っていれば ${yen(back)} 戻っていた`);
+    }
+    out.rec.notes.push(...theft);
+    // 来月 狙われる店には、1か月前に知らせが出る
+    for (const z of s.biz) {
+      if (z.hit === undefined && br() < burgleChance(z, bal)) {
+        z.hit = ended + 1;
+        out.rec.notes.push('近くで空き巣が増えている（店の防犯を見直せる）');
+      }
     }
     for (const z of s.biz) if (z.type !== 'works') out.rec.notes.push(...rivalsReact(z, mr, bal));
     out.rec.notes.push(...turnMonth(s.eco, ended + 1, mr, bal));
@@ -1576,6 +1606,25 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'priceDown': {
       const z = s.biz.find((x) => x.poi === p.id);
       if (z) z.price = Math.round((z.price + (cmd.act === 'priceUp' ? 0.1 : -0.1)) * 10) / 10;
+      break;
+    }
+    case 'secLock':
+    case 'secCam':
+    case 'secGuard': {
+      const z = s.biz.find((x) => x.poi === p.id);
+      if (!z) break;
+      const sec = (z.sec ??= { lock: false, cam: false, guard: false });
+      if (cmd.act === 'secGuard') {
+        sec.guard = !sec.guard;
+        toast(sec.guard ? '警備会社と契約した' : '警備会社との契約をやめた');
+        break;
+      }
+      const cost = cmd.act === 'secLock' ? bal.town.lock : bal.town.cam;
+      if ((cmd.act === 'secLock' ? sec.lock : sec.cam) || !payBiz(s, cost)) break;
+      if (cmd.act === 'secLock') sec.lock = true;
+      else sec.cam = true;
+      s.eco.m.cost += cost;
+      toast(cmd.act === 'secLock' ? '鍵と金庫をつけた' : '防犯カメラをつけた', 'good');
       break;
     }
     case 'ad': {
