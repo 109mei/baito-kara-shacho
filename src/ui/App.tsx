@@ -1,6 +1,6 @@
 // 画面。街の絵は PixiJS が描き、React は上に重ねる表示と札だけを受け持つ。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CREW, crewOf, hasKey, POI_NAME, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
+import { CREW, crewOf, hasKey, POI_NAME, poiActions, poiTitle, rank, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
@@ -223,7 +223,7 @@ function BigMap() {
           {LEGEND.map((k) => <span key={k}><i style={{ background: hex(PIN[k].c) }}>{PIN[k].t}</i>{LEGEND_NAME[k]}</span>)}
           <span><i className="me-dot" />自分</span>
         </div>
-        <div className="tools" data-credit><b>信用</b><span>ランク {grade}（{credit}点）</span></div>
+        <div className="tools" data-credit><b><Term k="信用" /></b><span>ランク {grade}（{credit}点）</span></div>
         {tools.length > 0 && <div className="tools" data-tools><b>持ち物</b>{tools.map((t) => <span key={t}>{t}</span>)}</div>}
         {box && (
           <div className="savebox" data-savebox>
@@ -320,6 +320,24 @@ function Stats({ p }: { p: Staff }) {
   })}</small>;
 }
 
+// 言葉の意味：長押しすると、1行で出る（仕様書 11章）
+const GLOSS: Record<string, string> = {
+  信用: '支払いを守ってきたかどうかの点。上がると、借りられる額と、通る審査が増える',
+  知名度: 'その商売で、どれだけ知られているか。高いほど、月の枠と届く話が増える',
+  疲れ: '働くとたまり、寝ると取れる。80を超えると仕事が遅くなり、100で倒れる',
+  知識: 'その業種の慣れ。30から仕事が速くなり、数字の幅もせまく見える',
+  認知: 'その店を知っている人の割合。広告と口コミで上がり、毎月すこし下がる',
+  評判: '来た客の満足。待たせて帰すと下がる。店に入る人の割合に効く',
+  契約: '会社との定期の仕事。点の高い会社が取る。代金は翌月末に入る',
+  会社の口座: '法人にしたあとの、商売のお金。自分のお金にするのは、月末の給料だけ',
+  入金の予定: '会社どうしの取引は、月末に締めて、翌月末に入る',
+};
+function Term({ k, children }: { k: string; children?: React.ReactNode }) {
+  const t = useRef(0);
+  const stop = () => window.clearTimeout(t.current);
+  return <span className="term" data-term={k} onPointerDown={() => { stop(); t.current = window.setTimeout(() => { buzz(8); useGame.getState().toast(`${k}：${GLOSS[k]}`); }, 450); }} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop}>{children ?? k}</span>;
+}
+
 // 仕事と商売：届いた話、今月の枠、作品、知名度、入金の予定、自分の疲れと知識
 function Hub() {
   useGame((s) => s.hud);
@@ -356,7 +374,7 @@ function Hub() {
             {g.taken ? <><button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button><button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
           </div>
         ))}
-        {(tr.bids.length > 0 || tr.deals.length > 0) && <h3>契約（会社との定期の仕事）</h3>}
+        {(tr.bids.length > 0 || tr.deals.length > 0) && <h3><Term k="契約" />（会社との定期の仕事）</h3>}
         {tr.deals.some((d) => d.crew) && <p className={`line num ${crewN < crewUsed(tr) ? 'warn' : ''}`} data-crew>契約に回している人 <b>{crewN}</b>人　要る人数 <b>{crewUsed(tr)}</b>人<small className="sub">人の持ち場を「契約」にすると回せる。足りないと、その月の代金が入らず、相手との関係が下がる</small></p>}
         {tr.deals.map((d, i) => (
           <div key={i} className="gig on" data-deal>
@@ -399,7 +417,7 @@ function Hub() {
               <Stats p={q} />
               <small>{q.mood >= b.staff.quit ? '「話があります」と言っている' : q.mood >= b.staff.sign ? '遅刻が増えた' : q.months === 0 ? '働き始めたばかり' : '変わりなし'}{q.see[0] >= 3 ? `・まとめる力 ${q.lead}` : ''}</small></span>
             <div className="btns">
-              <button className="chip" data-s="assign" onClick={() => staff(q.id, 'assign')}>店を変える</button>
+              <button className="chip" data-s="assign" onClick={() => staff(q.id, 'assign')}>持ち場を変える</button>
               {s.biz.find((z) => z.poi === q.at)?.type === 'works' && <button className="chip" data-s="proc" onClick={() => staff(q.id, 'proc')}>工程を変える</button>}
               <button className="chip" data-s="boss" disabled={q.at < 0} onClick={() => staff(q.id, 'boss')}>{s.biz.some((z) => z.boss === q.id) ? '店長をやめる' : '店長に任せる'}</button>
               <button className="chip" data-s="raise" onClick={() => staff(q.id, 'raise')}>昇給</button>
@@ -447,7 +465,7 @@ function Hub() {
         <h3>個人開発</h3>
         {tr.proj ? <p className="line num">{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {devHours(J[tr.proj.job], b)}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}</p> : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
         {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month)}</b>本</p>)}
-        {fame.length > 0 && <><h3>知名度</h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
+        {fame.length > 0 && <><h3><Term k="知名度" /></h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
         {tr.recv.length > 0 && <><h3>入金の予定</h3>{tr.recv.map((r, i) => <p key={i} className="line num">{r.what}　<b>{yen(r.amount)}</b>（月末）</p>)}</>}
         <h3>新聞</h3>
         <p className="line num">景気は「<b>{phaseOf(s.eco).name}</b>」{s.eco.cycle.left <= 3 ? `　あと${s.eco.cycle.left}か月で変わる見込み` : ''}</p>
@@ -456,7 +474,7 @@ function Hub() {
         {s.eco.corp && <h3>会社</h3>}
         {s.eco.corp && (
           <div className="gig col" data-corp>
-            <span>会社の口座 <b>{yen(s.eco.corp.bank)}</b>　自分への給料 月 <b>{yen(s.eco.corp.salary)}</b>
+            <span><Term k="会社の口座" /> <b>{yen(s.eco.corp.bank)}</b>　自分への給料 月 <b>{yen(s.eco.corp.salary)}</b>
               <small>商売の売上と支払いは、会社の口座で動く。自分のお金にするのは、月末の給料だけ。給料は会社の経費になる。税は利益の{Math.round(b.tax.corp * 100)}%</small></span>
             <div className="btns">
               <button className="chip" data-c="payDown" onClick={() => corp('payDown')}>給料を下げる</button>
@@ -466,8 +484,8 @@ function Hub() {
           </div>
         )}
         <h3>自分</h3>
-        <p className="line num">疲れ <b>{Math.round(s.eco.fatigue)}</b> / 100<span className="bar"><i style={{ width: `${s.eco.fatigue}%` }} className={s.eco.fatigue > 80 ? 'hot' : s.eco.fatigue > 60 ? 'warm' : ''} /></span></p>
-        {know.length > 0 && <p className="line num">知識　{know.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{Math.floor(v)}</b>　</span>)}</p>}
+        <p className="line num"><Term k="疲れ" /> <b>{Math.round(s.eco.fatigue)}</b> / 100<span className="bar"><i style={{ width: `${s.eco.fatigue}%` }} className={s.eco.fatigue > 80 ? 'hot' : s.eco.fatigue > 60 ? 'warm' : ''} /></span></p>
+        {know.length > 0 && <p className="line num"><Term k="知識" />　{know.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{Math.floor(v)}</b>　</span>)}</p>}
       </div>
     </div>
   );
@@ -524,8 +542,8 @@ function Report() {
   const prev = hist.length >= 2 ? hist[hist.length - 2] : null;
   const y = Math.floor(rec.month / b.time.monthsPerYear) + 1;
   const m = (rec.month % b.time.monthsPerYear) + 1;
-  const diff = (old: number | undefined) => (old === undefined ? '' : `先月 ${yen(old)}`);
-  const rows: [string, number, string, string][] = [
+  const diff = (old: number | undefined): React.ReactNode => (old === undefined ? '' : <>先月 <span className="nb">{old < 0 ? `−${yen(-old)}` : yen(old)}</span></>);
+  const rows: [string, number, React.ReactNode, string][] = [
     ['売上', rec.sales, diff(prev?.sales), ''],
     ['原価・経費', -rec.cost, '', ''],
     ['給料', -rec.wage, '', ''],
@@ -537,7 +555,7 @@ function Report() {
     ['生活費', -rec.living, '', ''],
     ['税', -rec.tax, '', ''],
     ['残ったお金', rec.money, diff(prev?.money), 'sum'],
-    ...(rec.corp !== undefined ? [['会社の口座', rec.corp, diff(prev?.corp), 'sum'] as [string, number, string, string]] : []),
+    ...(rec.corp !== undefined ? [['会社の口座', rec.corp, diff(prev?.corp), 'sum'] as [string, number, React.ReactNode, string]] : []),
   ];
   return (
     <div className="veil center" data-report>
@@ -551,7 +569,15 @@ function Report() {
             ))}
           </tbody>
         </table>
-        <p className="credit num">信用 <b>{rankOf(rec.credit)}</b>（{Math.round(rec.credit)}点{rec.creditDiff ? `・${rec.creditDiff > 0 ? '+' : '−'}${Math.abs(Math.round(rec.creditDiff))}` : ''}）</p>
+        <p className="credit num"><Term k="信用" /> <b>{rankOf(rec.credit)}</b>（{Math.round(rec.credit)}点{rec.creditDiff ? `・${rec.creditDiff > 0 ? '+' : '−'}${Math.abs(Math.round(rec.creditDiff))}` : ''}）</p>
+        {rec.month === 23 && (
+          <div className="record" data-record>
+            <b>2年の記録</b>
+            <span>独立　{getCore().eco.indep >= 0 ? `${getCore().eco.indep + 1}か月目` : 'まだ'}</span>
+            <span>肩書き　{rank(getCore())}</span>
+            <span>お金　{yen(rec.money + (rec.corp ?? 0))}　事業　{getCore().biz.length}</span>
+          </div>
+        )}
         {rec.unpaid.map((u, i) => <p key={i} className="unpaid num" data-unpaid>払えなかった：{u.what} {yen(u.amount)}<br />来月末に払う。次も払えないと倒産</p>)}
         {rec.notes.map((t) => <p key={t} className="note">{t}</p>)}
         <button className="btn primary" data-ok onClick={() => set({ report: null, broke: false })}>つぎの月へ</button>
@@ -871,8 +897,7 @@ function Game() {
           {(hud.gun || hud.hp < 100) && <span className={`hp ${hud.hp < 35 ? 'low' : ''}`} data-hp={hud.hp}><Icon name="heart" size={15} /><span><i style={{ width: `${Math.min(100, hud.hp)}%` }} /></span></span>}
         </div>
         {!hud.inside && <button className="hubbtn" data-hubbtn onClick={() => set({ hub: true })}><Icon name="case" size={17} /><span>仕事と商売</span>{hud.gigs > 0 && <i>{hud.gigs}</i>}</button>}
-        {hud.short > 0 && <span className="need" data-need>月末の払いに {yen(hud.short)} 足りない</span>}
-        {hud.short <= 0 && hud.corpShort > 0 && <span className="need" data-need="corp">会社の月末の払いに {yen(hud.corpShort)} 足りない</span>}
+        {hud.need && <span className={`need ${hud.needKind}`} data-need={hud.needKind}>{hud.need}</span>}
         {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={17} /><span>{hud.goal}</span></button>}
         </div>
         <div className="hud-right">

@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
 import { dateOf, rankOf, type MonthRec } from '../core/eco';
 import { blocked } from '../core/rooms';
-import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, shortOf, HAND, type HandKind } from '../core/sim';
+import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, needOf, HAND, type HandKind } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -29,8 +29,8 @@ export interface Hud {
   zone: boolean; // 立入禁止の所にいる
   mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
   date: string; credit: number; grade: string; // 暦、信用の点とランク
-  short: number; // 月末の払いに足りない額（足りていれば 0）
-  corp: number | null; corpShort: number; // 法人：会社の口座と、会社の月末の払いに足りない額
+  need: string; needKind: string; // いまいちばん足りないもの（1つだけ。なければ空）
+  corp: number | null; // 法人：会社の口座
   gigs: number; // 届いていて、まだ受けていない話の数
   aim: boolean; // 撃てる相手が、届く所にいる
   caught: number; // 捕まるまでの度合い（0〜1）
@@ -98,7 +98,7 @@ let beepT = 0;
 function goalOf(s: GameState): [string, PoiKind] {
   const hasRide = s.cars.some((c) => c.kind === 'mine');
   if (s.biz.length === 0 && s.cash < b.money.bike && !hasRide) return ['はたらいて お金をつくる', 'conbini'];
-  if (!hasRide) return ['自転車を買う', 'bike'];
+  if (!hasRide && s.biz.length === 0) return ['自転車を買う', 'bike'];
   if (s.biz.length === 0 && s.cash < b.biz.stall && s.dirty >= 50000) return ['質屋で お金を洗う', 'pawn'];
   if (s.biz.length === 0 && !s.firm.permits.includes('food') && s.cash >= b.biz.stall) return ['窓口で 食品衛生の講習', 'office'];
   if (s.biz.length === 0) return [`屋台を出す ¥${b.biz.stall.toLocaleString('ja-JP')}`, s.cash >= b.biz.stall ? 'lot' : 'conbini'];
@@ -134,7 +134,7 @@ function snapshot(): Hud {
     goal: goalOf(s)[0], goalKind: goalOf(s)[1],
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
     date: ((d) => `${d.year}年${d.month}月${d.day}日`)(dateOf(s.eco, b)), credit: Math.round(s.eco.credit), grade: rankOf(s.eco.credit),
-    short: shortOf(s, b).me, corp: s.eco.corp ? s.eco.corp.bank : null, corpShort: shortOf(s, b).corp,
+    need: needOf(s, b)?.text ?? '', needKind: needOf(s, b)?.kind ?? '', corp: s.eco.corp ? s.eco.corp.bank : null,
     gigs: s.tr.gigs.filter((g) => !g.taken).length,
     mates: net.online ? net.mates.size : -1,
     aim: s.gun && !s.inside && (s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < b.gang.gunRange) || (net.online && !!net.nearest(s.x, s.y, b.gang.gunRange))),

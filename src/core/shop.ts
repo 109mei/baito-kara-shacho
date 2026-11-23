@@ -227,7 +227,7 @@ export function monthStaff(firm: Firm, shops: Shop[], rnd: () => number, bal: Ba
     p.quiet += 1;
     p.see = [3, 3, 3];
     const low = Math.max(0, Math.round((1 - p.wage / T.market) * 100)); // 日給が相場より低い割合 1% につき +1
-    p.mood = clamp(p.mood + low + (p.quiet >= 3 ? T.quiet : 0) + (p.at < 0 ? 5 : 0), 0, 100);
+    p.mood = clamp(p.mood + low + (p.quiet >= 3 ? T.quiet : 0) + (p.at === -1 ? 5 : 0), 0, 100);
     if (p.mood >= T.quit) notes.push(`${p.name}：「話があります」`);
     else if (p.mood >= T.sign) notes.push(`${p.name}の遅刻が増えた`);
     else if (p.mood >= 40 && rnd() < 0.3) notes.push(`${p.name}に、ほかの会社から声がかかっている`);

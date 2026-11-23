@@ -4,7 +4,7 @@ import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
 import { apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
-import { DEAL_NAME, devHours, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
+import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -174,12 +174,12 @@ export function permitConds(s: GameState, kind: 'build' | 'haul' | 'guard', bal:
   if (kind === 'build') return [
     { label: `技術者（技能 ${P.buildSkill} 以上の人。いまの最高 ${Math.round(best)}）`, ok: best >= P.buildSkill },
     { label: '経営の経験（決算を1回）', ok: s.eco.closings >= 1 },
-    { label: `資金 ${yen(P.buildFund)}（あと ${yen(Math.max(0, P.buildFund - funds(s)))}）`, ok: funds(s) >= P.buildFund },
+    { label: `資金 ${yen(P.buildFund)}${funds(s) < P.buildFund ? `（あと ${yen(P.buildFund - funds(s))}）` : ''}`, ok: funds(s) >= P.buildFund },
   ];
   if (kind === 'haul') return [
     { label: '運行管理者（窓口の講習）', ok: s.firm.permits.includes('transit') },
     { label: `整備管理者（技能 ${P.haulSkill} 以上の人。いまの最高 ${Math.round(best)}）`, ok: best >= P.haulSkill },
-    { label: `トラック ${P.trucks}台 ${yen(P.trucks * P.truck)}（あと ${yen(Math.max(0, P.trucks * P.truck - funds(s)))}）`, ok: funds(s) >= P.trucks * P.truck },
+    { label: `トラック ${P.trucks}台 ${yen(P.trucks * P.truck)}${funds(s) < P.trucks * P.truck ? `（あと ${yen(P.trucks * P.truck - funds(s))}）` : ''}`, ok: funds(s) >= P.trucks * P.truck },
   ];
   return [
     { label: `指導教育の責任者の講習 ${yen(P.guardFee)}・${P.guardHours}時間`, ok: funds(s) >= P.guardFee },
@@ -195,6 +195,26 @@ export function shortOf(s: GameState, bal: Balance): { me: number; corp: number 
   if (!co) return { me: Math.max(0, b.me - s.cash - Math.max(0, s.bank)), corp: 0 };
   const sal = Math.min(co.salary, Math.max(0, co.bank - b.corp)); // 会社の払いのあとに残る分から、給料が出る
   return { me: Math.max(0, b.me - s.cash - Math.max(0, s.bank) - sal), corp: Math.max(0, b.corp - Math.max(0, co.bank)) };
+}
+// いまいちばん足りないものを、1つだけ返す（仕様書 11章の順：現金 → 警察 → 納期 → 物 → 人）
+export function needOf(s: GameState, bal: Balance): { kind: 'cash' | 'police' | 'due' | 'stuff' | 'staff'; text: string } | null {
+  const sh = shortOf(s, bal);
+  if (sh.me > 0) return { kind: 'cash', text: `月末の払いに ${yen(sh.me)} 足りない` };
+  if (sh.corp > 0) return { kind: 'cash', text: `会社の月末の払いに ${yen(sh.corp)} 足りない` };
+  if (stars(s, bal) >= 2) return { kind: 'police', text: '警察に追われている' };
+  // 納期：月の最後の日に、受けた仕事が残っている
+  if (s.eco.days % bal.time.daysPerMonth === bal.time.daysPerMonth - 1) {
+    const due = s.tr.gigs.filter((g) => g.taken).length + s.tr.deals.filter((d) => !d.crew && d.done < d.visits).reduce((a, d) => a + d.visits - d.done, 0);
+    if (due > 0) return { kind: 'due', text: `今月中の仕事が ${due}件 残っている` };
+    const crew = crewUsed(s.tr) - crewOf(s);
+    if (crew > 0) return { kind: 'due', text: `契約に回す人が ${crew}人 足りない` };
+  }
+  // 物：作る枠が残っているのに、材料がない
+  const works = s.biz.some((z) => z.type === 'works' && s.firm.staff.some((q) => q.at === z.poi));
+  if (s.tr.mats < 4 && (works || ((s.eco.know.craft ?? 0) > 0 && left(s.tr, 'craftSmall') > (s.tr.stock.craftSmall ?? 0)))) return { kind: 'stuff', text: '材料が足りない' };
+  const sad = s.firm.staff.find((q) => q.mood > 60);
+  if (sad) return { kind: 'staff', text: `${sad.name}に不満がたまっている` };
+  return null;
 }
 // 数字の見え方：知識が低い業種では、幅で見える。幅は ±（100 − 知識）÷ 4 %
 export const fuzz = (v: number, know: number): [number, number] => [v * (1 - (100 - know) / 400), v * (1 + (100 - know) / 400)];
@@ -301,7 +321,10 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         ...(['build', 'haul', 'guard'] as const).map((k) => {
           const has = s.firm.permits.includes(k);
           const ng = permitConds(s, k, bal).filter((c) => !c.ok);
-          return { id: `permit_${k}`, label: `${DEAL_NAME[k]}の許可を取る`, sub: has ? '取ってある' : ng.length ? `足りない：${ng.map((c) => c.label).join('／')}` : permitConds(s, k, bal).map((c) => c.label).join('／'), ok: !has && open && !ng.length, why: has ? '取ってある' : open ? ng[0]?.label ?? '' : '9時〜17時だけ' };
+          const P = bal.pro;
+          const sub = k === 'haul' ? `トラック ${P.trucks}台 ${yen(P.trucks * P.truck)} を買う／人を回す仕事の話が届く` : k === 'guard' ? `講習 ${yen(P.guardFee)}・${P.guardHours}時間／人を回す仕事の話が届く` : '条件がそろった／人を回す仕事の話が届く';
+          const lack = `足りない：${ng.map((c) => c.label).join('／')}`;
+          return { id: `permit_${k}`, label: `${DEAL_NAME[k]}の許可を取る`, sub: has ? '取ってある' : ng.length ? lack : sub, ok: !has && open && !ng.length, why: has ? '取ってある' : open ? lack : '9時〜17時だけ' };
         }),
         (() => {
           const need = bal.corp.fee + bal.corp.capital;
@@ -734,6 +757,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       s.firm.post = null;
       s.tr.deals = [];
       s.tr.bids = [];
+      out.rec.notes = out.rec.notes.filter((t) => !t.includes('が取れた')); // 取れた契約も、会社といっしょに消える
       ev.push({ type: 'bankrupt', corp: true });
     }
     if (out.bankrupt) {

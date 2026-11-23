@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { addCredit, auditChance, capCredit, closeMonth, dateOf, loanOffers, monthlyPay, newEco, rankOf, takeLoan } from '../src/core/eco';
-import { apply, createGame, fromSave, monthLiving, step, toSave } from '../src/core/sim';
+import { apply, createGame, fromSave, monthLiving, needOf, step, toSave } from '../src/core/sim';
+import { makeStaff } from '../src/core/shop';
 import { balance as b } from '../src/data/schema';
 
 const city = makeCity(20261123, b);
@@ -341,5 +342,26 @@ describe('独立（アルバイトをせずに、3か月 お金が減らない�
     const rec = month(20000, 0);
     expect(e.indep).toBe(rec.month);
     expect(rec.notes.some((t) => t.includes('独立できた'))).toBe(true);
+  });
+});
+
+describe('足りないものを、1つだけ出す', () => {
+  it('順番は 現金 → 警察 → 納期 → 物 → 人。足りているものは出ない', () => {
+    const s = createGame(7, city, b);
+    expect(needOf(s, b)).toBeNull();
+    s.cash = 500000; // 給料を払えるだけのお金がある
+    s.firm.staff.push({ ...makeStaff(1, () => 0.5, b), mood: 70, at: -1 });
+    expect(needOf(s, b)!.kind).toBe('staff');
+    s.eco.know.craft = 1;
+    expect(needOf(s, b)!.kind).toBe('stuff'); // 作る枠が残っているのに、材料がない
+    s.tr.gigs[0].taken = true;
+    expect(needOf(s, b)!.kind).toBe('stuff'); // 月の最後の日でなければ、納期は出ない
+    s.eco.days = b.time.daysPerMonth - 1;
+    expect(needOf(s, b)!.kind).toBe('due');
+    s.heat = b.heat.perStar * 2;
+    expect(needOf(s, b)!.kind).toBe('police');
+    s.cash = 0;
+    expect(needOf(s, b)!.kind).toBe('cash');
+    expect(needOf(s, b)!.text).toContain('月末の払いに');
   });
 });
