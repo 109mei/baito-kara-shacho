@@ -79,7 +79,8 @@ export class MapView {
   async init(el: HTMLElement): Promise<boolean> {
     try {
       this.res = Math.min(window.devicePixelRatio || 1, 2);
-      await this.app.init({ resizeTo: el, background: 0xe4e0d6, antialias: true, autoDensity: true, resolution: this.res, preference: 'webgl' });
+      // 画素の細かい画面（スマホ）では、なめらかにする処理を切る（細かさで足りるうえ、重いため）
+      await this.app.init({ resizeTo: el, background: 0xe4e0d6, antialias: this.res < 2, autoDensity: true, resolution: this.res, preference: 'webgl' });
     } catch {
       return false;
     }
@@ -247,8 +248,8 @@ export class MapView {
   }
 
   private tree(g: Graphics, x: number, y: number, r: number) {
-    g.circle(x + r * 0.5, y + r * 0.55, r).fill({ color: SHADE, alpha: 0.16 });
-    g.circle(x, y, r).fill(0x7fba74).circle(x - r * 0.25, y - r * 0.28, r * 0.62).fill(0xa6d79a);
+    g.regularPoly(x + r * 0.5, y + r * 0.55, r, 8).fill({ color: SHADE, alpha: 0.16 });
+    g.regularPoly(x, y, r, 8).fill(0x7fba74).regularPoly(x - r * 0.25, y - r * 0.28, r * 0.62, 6).fill(0xa6d79a);
   }
 
   private park(g: Graphics, b: Block, X: number, Y: number, W: number, H: number) {
@@ -481,9 +482,9 @@ export class MapView {
     const H = this.app.screen.height;
     // 遅い端末では、絵の細かさを1段ずつ下げる
     this.frames++;
-    if (this.frames > 30 && dt > 0.03) this.slow++;
-    if (this.frames % 90 === 0) {
-      if (this.slow > 45 && this.res > 1) {
+    if (this.frames > 20 && dt > 0.034) this.slow++;
+    if (this.frames % 30 === 0) {
+      if (this.slow >= 15 && this.res > 1) {
         this.res = Math.max(1, this.res - 0.5);
         this.app.renderer.resolution = this.res;
         this.app.resize();
@@ -525,6 +526,7 @@ export class MapView {
         built++;
       }
     }
+    for (const [key, g] of this.chunks) g.visible = need.has(key);
     if (this.chunks.size > 30) for (const [key, g] of this.chunks) if (!need.has(key) && this.chunks.size > 20) {
       g.destroy();
       this.chunks.delete(key);
