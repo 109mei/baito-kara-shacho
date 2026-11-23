@@ -570,7 +570,7 @@ describe('縄張りの勢力図', () => {
         apply(s, city, { type: 'poi', id: base.id, act: 'seize' }, b);
         apply(s, city, { type: 'leave' }, b);
         apply(s, city, { type: 'enter', id: base.id }, b);
-        expect(poiActions(s, city, base, b).map((a) => a.id)).toEqual(['sleep', 'stashIn', 'stashOut']);
+        expect(poiActions(s, city, base, b).map((a) => a.id)).toEqual(['sleep', 'nap', 'stashIn', 'stashOut']);
         expect(roomFor(s, city)!.spots.some((sp) => sp.acts?.includes('stashIn'))).toBe(true);
       }
     }
@@ -597,5 +597,12 @@ describe('縄張りの勢力図', () => {
     expect(a.turf.every((t) => t >= 0 && t <= 2)).toBe(true);
     expect(sim()).toEqual(a);
   });
+  it('夜まで休むと 22 時になる（夜の仕事のため）', () => {
+    const s = createGame(7, city, b);
+    s.x = city.home.x;
+    s.y = city.home.y;
+    apply(s, city, { type: 'poi', id: city.home.id, act: 'nap' }, b);
+    expect(Math.floor((s.clock % 1440) / 60)).toBe(22);
+    expect(poiActions(s, city, city.home, b).find((a) => a.id === 'nap')!.ok).toBe(false);
+  });
 });
-

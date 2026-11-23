@@ -7,6 +7,7 @@ import { GANGS, nodeXY, seg, turfOf, type Block, type City, type District, type 
 import { camAngle, CAM_FOV, CAM_NEAR, rayLen, type Furn, type Room } from '../core/rooms';
 import { hourOf, nearSpot, riding, roomFor, spotInfo, spotShown, stars, type Car, type GameState } from '../core/sim';
 import type { Balance } from '../data/schema';
+import { mateColor, net } from '../net/room';
 
 export const LAND = 0xf2efe9;
 export const WATER = 0xa9d3e6;
@@ -874,6 +875,16 @@ export class MapView {
     for (const sh of s.shots) {
       fg.moveTo(sh.x0, sh.y0).lineTo(sh.x1, sh.y1).stroke({ width: 1.1, color: 0xff9a3d, alpha: Math.min(0.7, sh.t * 6) }).moveTo(sh.x0, sh.y0).lineTo(sh.x1, sh.y1).stroke({ width: 0.45, color: 0xfff3c4, alpha: Math.min(1, sh.t * 10) });
       glow(sh.x0, sh.y0, 18, 0xffd060, 0.8);
+    }
+
+    // いっしょに遊んでいる人（外にいる人だけ）：色の輪と向き。乗り物に乗っていれば大きめに
+    for (const m of net.mates.values()) {
+      if (m.inside) continue;
+      const col = mateColor(m.id);
+      const r = m.ride === 2 ? 6.4 : m.ride === 1 ? 5.4 : 4.6;
+      fg.circle(m.x + 0.7, m.y + 0.9, r).fill({ color: SHADE, alpha: 0.22 }).circle(m.x, m.y, r).fill(0xffffff).circle(m.x, m.y, r - 0.9).fill(col).poly([m.x + Math.cos(m.a) * (r + 2.2), m.y + Math.sin(m.a) * (r + 2.2), m.x + Math.cos(m.a + 2.5) * r, m.y + Math.sin(m.a + 2.5) * r, m.x + Math.cos(m.a - 2.5) * r, m.y + Math.sin(m.a - 2.5) * r]).fill(col);
+      if (m.stars > 0) fg.circle(m.x, m.y - r - 2.4, 1.3).fill(0xffd23e);
+      if (m.hp < 100) fg.rect(m.x - 4, m.y + r + 1.6, 8, 1.1).fill(0x1b2330).rect(m.x - 4, m.y + r + 1.6, (8 * m.hp) / 100, 1.1).fill(0x3ddc84);
     }
 
     // 自分

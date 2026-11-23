@@ -5,6 +5,7 @@ import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
 import { blocked } from '../core/rooms';
 import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState } from '../core/sim';
 import { balance as b } from '../data/schema';
+import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
 import { buzz, setSound, sfx } from '../ui/sfx';
 
@@ -25,6 +26,7 @@ export interface Hud {
   spotOff: boolean; watch: number; drill: number; // 押せないボタン／見られている度合い（0〜1）／ドリルの進み（0〜1、していなければ -1）
   tools: string[]; // 持っている道具
   zone: boolean; // 立入禁止の所にいる
+  mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
 }
 export interface Toast { id: number; text: string; tone: string }
 interface Store {
@@ -106,12 +108,23 @@ function snapshot(): Hud {
     nearPoi: near.poi ? near.poi.id : null, nearName: near.poi ? poiTitle(s, city, near.poi) : '', way: !!s.way,
     goal: goalOf(s)[0], goalKind: goalOf(s)[1],
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
+    mates: net.online ? net.mates.size : -1,
     tools: [s.crowbar && 'バール', s.lockpick && 'ピッキング道具', s.laptop && 'ノートPC', s.drill && 'ドリル', s.gun && '銃', s.keys.length > 0 && `鍵 ${s.keys.length}本`].filter((x): x is string => !!x),
     ...insideHud(s),
   };
 }
 
 export const useGame = create<Store>((set, get) => {
+  // 撃つ：近くにほかの人（外にいる人）がいて、見張りより近ければ、その人を狙う
+  const shootNow = () => {
+    const mate = net.online && !core.inside ? net.nearest(core.x, core.y, b.gang.gunRange) : null;
+    const thug = Math.min(...core.thugs.map((t) => Math.hypot(t.x - core.x, t.y - core.y)), Infinity);
+    if (mate && Math.hypot(mate.x - core.x, mate.y - core.y) < thug) {
+      if (!core.gun || core.fireCd > 0) return;
+      handle(apply(core, city, { type: 'shoot', x: mate.x, y: mate.y }, b));
+      net.fireAt(mate.id);
+    } else handle(apply(core, city, { type: 'fire' }, b));
+  };
   const handle = (ev: Ev[]) => {
     for (const e of ev) {
       if (e.type === 'toast') get().toast(e.text, e.tone);
@@ -148,6 +161,10 @@ export const useGame = create<Store>((set, get) => {
       } else if (e.type === 'skip') set({ fade: get().fade + 1 });
     }
   };
+  net.onHit = (from) => {
+    if (get().phase !== 'play' || core.inside || from.inside || Math.hypot(from.x - core.x, from.y - core.y) > b.gang.gunRange + 30) return;
+    handle(apply(core, city, { type: 'hurt', amount: b.gang.pvpDamage, x: from.x, y: from.y }, b));
+  };
   const loop = (now: number) => {
     raf = requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -158,18 +175,21 @@ export const useGame = create<Store>((set, get) => {
       acc += dt;
       let n = 0;
       while (acc >= STEP && n < 5) {
-        if (input.fire && core.gun && core.fireCd <= 0 && !core.inside) handle(apply(core, city, { type: 'fire' }, b)); // 押しっぱなしで撃ち続ける
+        if (input.fire && core.gun && core.fireCd <= 0 && !core.inside) shootNow(); // 押しっぱなしで撃ち続ける
         handle(step(core, city, input, b));
         acc -= STEP;
         n++;
       }
       if (n === 5) acc = 0;
       // 建物の中：警報が鳴っている間は 1 秒ごとに音、ドリルの間は削る音
-      if (core.inside && (core.inside.alarm > 0 || core.inside.drill > 0)) {
+      const ins = core.inside;
+      const watched = !!ins && ins.alarm < 0 && ins.seenT > 0.05;
+      if (ins && (ins.alarm > 0 || ins.drill > 0 || watched)) {
         beepT -= dt;
         if (beepT <= 0) {
-          beepT = core.inside.drill > 0 ? 0.22 : 1;
-          if (core.inside.drill > 0) sfx.drill();
+          beepT = watched ? 0.16 : ins.drill > 0 ? 0.22 : 1;
+          if (watched) sfx.tick(); // 見られている：速い小さな音で知らせる
+          else if (ins.drill > 0) sfx.drill();
           else sfx.alarm();
         }
       } else beepT = 0;
@@ -182,9 +202,14 @@ export const useGame = create<Store>((set, get) => {
         }
       }
     }
+    net.step(dt);
     hudT += dt;
     if (hudT > 0.1) {
       hudT = 0;
+      if (net.online && st.phase === 'play') {
+        const car = riding(core);
+        net.send({ x: core.x, y: core.y, a: core.a, ride: car ? (car.bike ? 1 : 2) : 0, stars: stars(core, b), turfs: core.turf.filter((t) => t === -1).length, inside: !!core.inside, hp: core.hp });
+      }
       set({ hud: snapshot() });
     }
     saveT += dt;
@@ -223,9 +248,7 @@ export const useGame = create<Store>((set, get) => {
       set({ hud: snapshot() });
       SaveStore.save(toSave(core));
     },
-    fire: () => {
-      handle(apply(core, city, { type: 'fire' }, b));
-    },
+    fire: () => shootNow(),
     // 乗る・降りる・盗む
     action: () => {
       buzz(10);
@@ -327,6 +350,12 @@ export const useGame = create<Store>((set, get) => {
 });
 
 export const poiOf = (id: number): Poi => city.pois[id];
+
+// ほかの人と一緒に遊ぶ：claude.ai のページとして開いたときだけつながる（ほかの置き場では何もしない）
+if (typeof window !== 'undefined') {
+  const w = window as unknown as { claude?: { use?: (name: string) => Promise<unknown> } };
+  void net.start(() => (w.claude?.use ? (w.claude.use('room') as Promise<never>) : null), city.size);
+}
 
 // 確かめ用（ブラウザのテストから状態を読む・場所へ動かす）
 declare global {

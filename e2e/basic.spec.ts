@@ -209,6 +209,8 @@ test('家に入って寝る。留守の家で盗む。敵の見張りと撃ち�
   await shot(page, '10-inside-home');
   const day = (await state(page)).clock;
   await use(page, 0);
+  await expect(page.locator('[data-act="nap"]')).toBeVisible();
+  await page.locator('[data-act="sleep"]').click();
   await expect.poll(async () => (await state(page)).clock).toBeGreaterThan(day + 600);
   await out(page);
   // 留守の家：バールを持って、こじ開けて入る
@@ -250,3 +252,28 @@ test('家に入って寝る。留守の家で盗む。敵の見張りと撃ち�
   await page.locator('[data-down] [data-ok]').click();
   await expect(page.locator('[data-down]')).toHaveCount(0);
 });
+
+test('ほかの人と一緒に遊ぶ：同じページを開いている人が街に見える。つながらない所では 1人用のまま', async ({ page }) => {
+  // claude.ai のページの「room」を、にせ物で置きかえる（相手が1人、自宅の近くにいる）
+  await page.addInitScript(() => {
+    const w = window as unknown as { claude: unknown; __sent: unknown[]; __push: (p: unknown) => void };
+    w.__sent = [];
+    let handler: (c: { peers: unknown[] }) => void = () => {};
+    w.__push = (presence) => handler({ peers: [{ peer: 'me', isMe: true, sameTab: true, kind: 'viewer', presence: {} }, { peer: 'friend-1', isMe: false, sameTab: false, kind: 'viewer', presence }] });
+    w.claude = {
+      use: async (name: string) => (name === 'room' ? { presence: async (p: unknown) => void w.__sent.push(p), onPeers: (h: typeof handler) => ((handler = h), () => {}) } : null),
+    };
+  });
+  await fresh(page);
+  await page.locator('[data-start="new"]').click();
+  const a = await state(page);
+  await page.evaluate(([x, y]) => (window as unknown as { __push: (p: unknown) => void }).__push({ g: 1, x: x + 14, y: y + 6, a: 0.6, r: 0, s: 2, t: 1, i: 0, h: 70 }), [a.x, a.y]);
+  await expect(page.locator('[data-mates="1"]')).toBeVisible();
+  await page.waitForTimeout(700);
+  await shot(page, '17-online');
+  const sent = await page.evaluate(() => (window as unknown as { __sent: { g: number; x: number }[] }).__sent);
+  expect(sent.length).toBeGreaterThan(0);
+  expect(sent.at(-1)!.g).toBe(1);
+  expect(Math.abs(sent.at(-1)!.x - a.x)).toBeLessThan(2);
+});
+

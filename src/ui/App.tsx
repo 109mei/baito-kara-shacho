@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
+import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
 import { MapView, PIN } from '../world/MapView';
 import { drawOverview } from '../world/overview';
@@ -63,6 +64,16 @@ function Minimap() {
       x.fill();
       x.lineWidth = P * 0.012;
       x.strokeStyle = '#fff';
+      x.stroke();
+    }
+    for (const m of net.mates.values()) {
+      const [px, py] = to(m.x, m.y);
+      x.fillStyle = hex(mateColor(m.id));
+      x.strokeStyle = '#fff';
+      x.lineWidth = P * 0.014;
+      x.beginPath();
+      x.arc(px, py, P * 0.04, 0, 6.3);
+      x.fill();
       x.stroke();
     }
     for (const t of s.thugs) {
@@ -232,7 +243,7 @@ function Panel({ id }: { id: number }) {
           <button className="round" data-close onClick={() => set({ panel: null })}><Icon name="x" /></button>
         </div>
         {acts.map((a) => (
-          <button key={a.id} className={`act ${a.crime ? 'crime' : ''}`} data-act={a.id} disabled={!a.ok} onClick={() => { buzz(10); act(id, a.id, !!a.mini); if (['sleep', 'work', 'chop'].includes(a.id)) set({ panel: null }); }}>
+          <button key={a.id} className={`act ${a.crime ? 'crime' : ''}`} data-act={a.id} disabled={!a.ok} onClick={() => { buzz(10); act(id, a.id, !!a.mini); if (['sleep', 'nap', 'work', 'chop'].includes(a.id)) set({ panel: null }); }}>
             <span className="act-label">{a.label}</span>
             <span className="act-sub">{a.ok ? a.sub : a.why}</span>
           </button>
@@ -439,6 +450,7 @@ function Game() {
         </div>
       </header>
 
+      {hud.mates > 0 && !hud.inside && <span className="mates" data-mates={hud.mates}>いっしょに {hud.mates}人</span>}
       {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={15} /><span>{hud.goal}</span></button>}
       {!moved && <div className="howto" data-howto>画面に指を置いて、動かす</div>}
 

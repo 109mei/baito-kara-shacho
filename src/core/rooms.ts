@@ -28,7 +28,7 @@ const withExit = (r: Room): Room => ({ ...r, spots: [...r.spots, ...(r.back ? [{
 export function roomOf(kind: PoiKind, owned: boolean): Room | null {
   switch (kind) {
     case 'home':
-      return withExit({ w: 10, h: 8, floor: 'wood', f: [F('bed', 0.5, 0.5, 2.1, 3.1), F('desk', 7.3, 0.5, 2.2, 1.1), F('tv', 3.9, 0.45, 1.9, 0.5), F('rug', 3.1, 2.1, 3.6, 2.2), F('sofa', 3.6, 3.3, 2.6, 1.0), F('fridge', 0.5, 5.4, 1.0, 1.0), F('table', 7.2, 4.4, 1.7, 1.7), F('plant', 9.0, 6.9, 0.6, 0.6), F('plant', 0.5, 6.9, 0.6, 0.6)], spots: [{ x: 3.1, y: 2.0, label: '朝まで寝る', acts: ['sleep'] }] });
+      return withExit({ w: 10, h: 8, floor: 'wood', f: [F('bed', 0.5, 0.5, 2.1, 3.1), F('desk', 7.3, 0.5, 2.2, 1.1), F('tv', 3.9, 0.45, 1.9, 0.5), F('rug', 3.1, 2.1, 3.6, 2.2), F('sofa', 3.6, 3.3, 2.6, 1.0), F('fridge', 0.5, 5.4, 1.0, 1.0), F('table', 7.2, 4.4, 1.7, 1.7), F('plant', 9.0, 6.9, 0.6, 0.6), F('plant', 0.5, 6.9, 0.6, 0.6)], spots: [{ x: 3.1, y: 2.0, label: 'ベッド', acts: ['sleep', 'nap'] }] });
     case 'conbini':
       return withExit({
         w: 12, h: 9, floor: 'tile', heist: 'conbini',
@@ -90,10 +90,10 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
       return withExit({ w: 10, h: 8, floor: 'carpet', f: [F('bed', 0.5, 0.5, 2.1, 3.0), F('drawer', 3.0, 0.5, 1.4, 0.7), F('tv', 5.6, 0.45, 1.9, 0.5), F('safe', 8.5, 0.5, 1.0, 1.0), F('rug', 4.6, 2.2, 3.4, 2.2), F('sofa', 5.0, 3.6, 2.6, 1.0), F('table', 1.0, 5.0, 1.6, 1.6), F('desk', 7.4, 5.6, 2.1, 1.0), F('plant', 0.5, 7.0, 0.6, 0.6)], spots: [{ x: 3.7, y: 1.8, label: '引き出しをあさる', loot: true }, { x: 6.5, y: 1.6, label: 'テレビを持ち出す', loot: true }, { x: 8.6, y: 2.1, label: '金庫をこじ開ける', loot: true }, { x: 8.4, y: 5.0, label: '机をあさる', loot: true }] });
     case 'hideout':
       return owned
-        ? withExit({ w: 10, h: 7, floor: 'concrete', f: [F('bed', 0.5, 0.5, 2.0, 3.0), F('safe', 8.4, 0.5, 1.1, 1.1), F('table', 4.2, 2.4, 1.8, 1.4), F('box', 0.6, 5.0, 1.6, 1.4), F('tv', 4.2, 0.45, 1.8, 0.5), F('rug', 3.4, 1.8, 3.4, 2.6)], spots: [{ x: 3.0, y: 1.9, label: '朝まで寝る', acts: ['sleep'] }, { x: 8.6, y: 2.2, label: '金庫', acts: ['stashIn', 'stashOut'] }] })
+        ? withExit({ w: 10, h: 7, floor: 'concrete', f: [F('bed', 0.5, 0.5, 2.0, 3.0), F('safe', 8.4, 0.5, 1.1, 1.1), F('table', 4.2, 2.4, 1.8, 1.4), F('box', 0.6, 5.0, 1.6, 1.4), F('tv', 4.2, 0.45, 1.8, 0.5), F('rug', 3.4, 1.8, 3.4, 2.6)], spots: [{ x: 3.0, y: 1.9, label: 'ベッド', acts: ['sleep', 'nap'] }, { x: 8.6, y: 2.2, label: '金庫', acts: ['stashIn', 'stashOut'] }] })
         : withExit({ w: 10, h: 7, floor: 'concrete', f: [F('box', 0.6, 0.6, 1.8, 1.6), F('box', 7.6, 4.6, 1.6, 1.4)], spots: [{ x: 5.0, y: 2.8, label: 'ここをアジトにする', acts: ['buyHide'] }] });
     case 'gang':
-      if (owned) return withExit({ w: 12, h: 8, floor: 'concrete', f: [F('vault', 8.6, 0.5, 2.8, 2.2), F('bed', 0.5, 0.5, 2.0, 3.0), F('table', 4.4, 3.4, 2.4, 1.4), F('tv', 4.4, 0.45, 1.8, 0.5), F('box', 0.6, 5.4, 2.0, 1.6), F('rug', 3.6, 2.6, 4.0, 2.8)], spots: [{ x: 3.0, y: 1.9, label: '朝まで寝る', acts: ['sleep'] }, { x: 10.0, y: 3.4, label: '金庫', acts: ['stashIn', 'stashOut'] }] });
+      if (owned) return withExit({ w: 12, h: 8, floor: 'concrete', f: [F('vault', 8.6, 0.5, 2.8, 2.2), F('bed', 0.5, 0.5, 2.0, 3.0), F('table', 4.4, 3.4, 2.4, 1.4), F('tv', 4.4, 0.45, 1.8, 0.5), F('box', 0.6, 5.4, 2.0, 1.6), F('rug', 3.6, 2.6, 4.0, 2.8)], spots: [{ x: 3.0, y: 1.9, label: 'ベッド', acts: ['sleep', 'nap'] }, { x: 10.0, y: 3.4, label: '金庫', acts: ['stashIn', 'stashOut'] }] });
       return withExit({ w: 12, h: 8, floor: 'concrete', f: [F('vault', 8.6, 0.5, 2.8, 2.2), F('table', 3.0, 2.8, 2.6, 1.5), F('sofa', 0.6, 0.6, 2.6, 1.0), F('box', 0.6, 5.4, 2.0, 1.6), F('goods', 4.0, 0.5, 3.0, 0.8), F('rug', 2.4, 2.2, 4.0, 2.8)], spots: [{ x: 10.0, y: 3.4, label: '金庫の中身をいただく', acts: ['seize'] }] });
     default:
       return null; // 解体屋と ATM は外で使う

@@ -64,7 +64,9 @@ export type Cmd =
   | { type: 'heist'; i: number; hits?: number }
   | { type: 'leave' }
   | { type: 'loot'; i: number }
-  | { type: 'fire' };
+  | { type: 'fire' }
+  | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
+  | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
 
 export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店' };
@@ -176,9 +178,11 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
   const h = hourOf(s);
   const cd = (s.cool[p.id] ?? 0) - dayOf(s);
   const car = riding(s);
+  // 夜の仕事のために、夜まで時間を進める
+  const NAP: Act = { id: 'nap', label: '夜まで休む', sub: '22時に起きる', ok: !s.seen && h >= 5 && h < 21, why: s.seen ? '警察に見られている' : 'もう夜' };
   switch (p.kind) {
     case 'home':
-      return [{ id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' }];
+      return [{ id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' }, NAP];
     case 'conbini':
     case 'warehouse': {
       const wage = p.kind === 'conbini' ? m.wageConbini : m.wageWarehouse;
@@ -203,7 +207,7 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
     case 'hideout':
       if (s.hide !== p.id) return [{ id: 'buyHide', label: 'アジトにする', sub: `${yen(bal.gang.hideCost)}／金庫の中身は逮捕されても取られない`, ok: s.cash + s.dirty >= bal.gang.hideCost, why: 'お金が足りない', crime: true }];
       return [
-        { id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' },
+        { id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' }, NAP,
         { id: 'stashIn', label: '汚れたお金をしまう', sub: `金庫 ${yen(s.stash)}`, ok: s.dirty > 0, why: '汚れたお金がない', crime: true },
         { id: 'stashOut', label: '金庫から出す', sub: yen(s.stash), ok: s.stash > 0, why: '金庫は空', crime: true },
       ];
@@ -211,7 +215,7 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
       const t = turfOf(city.size, p.x, p.y);
       if (s.turf[t] === -1)
         return [
-          { id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' },
+          { id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' }, NAP,
           { id: 'stashIn', label: '汚れたお金をしまう', sub: `金庫 ${yen(s.stash)}`, ok: s.dirty > 0, why: '汚れたお金がない', crime: true },
           { id: 'stashOut', label: '金庫から出す', sub: yen(s.stash), ok: s.stash > 0, why: '金庫は空', crime: true },
         ];
@@ -472,6 +476,24 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     ev.push({ type: 'sfx', name: 'door' });
     return ev;
   }
+  if (cmd.type === 'shoot') {
+    if (!s.gun || s.fireCd > 0 || s.inside) return ev;
+    s.fireCd = 0.38;
+    s.a = Math.atan2(cmd.y - s.y, cmd.x - s.x);
+    s.shots.push({ x0: s.x, y0: s.y, x1: cmd.x, y1: cmd.y, t: 0.12 });
+    s.crimes += 1;
+    const seenNow = s.cars.some((c) => (c.kind === 'police' || c.kind === 'hunter') && Math.hypot(c.x - s.x, c.y - s.y) < bal.police.sight);
+    addHeat(s, seenNow ? bal.gang.shotSeen : bal.gang.shotUnseen, bal, ev);
+    ev.push({ type: 'sfx', name: 'shot' });
+    return ev;
+  }
+  if (cmd.type === 'hurt') {
+    if (s.inside) return ev;
+    s.hp -= Math.max(0, Math.min(50, cmd.amount));
+    s.shots.push({ x0: cmd.x, y0: cmd.y, x1: s.x, y1: s.y, t: 0.12 });
+    ev.push({ type: 'sfx', name: 'hurt' });
+    return ev;
+  }
   if (cmd.type === 'fire') {
     if (!s.gun || s.fireCd > 0 || s.inside) return ev;
     s.fireCd = 0.38;
@@ -696,6 +718,11 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       toast('よく寝た', 'good');
       break;
     }
+    case 'nap':
+      skip(s, city, 22 * 60 - (s.clock % 1440), bal, ev);
+      s.heat = Math.max(0, s.heat - 30);
+      toast('夜になった');
+      break;
     case 'work': {
       const wage = (p.kind === 'conbini' ? m.wageConbini : m.wageWarehouse) * m.shiftHours;
       skip(s, city, m.shiftHours * 60, bal, ev);

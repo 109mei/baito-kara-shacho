@@ -18,7 +18,7 @@ export const BalanceSchema = z.object({
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
   police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),
   crime: rec(['lootMin', 'lootMax', 'hackMin', 'hackMax', 'robMin', 'robMax', 'chopMin', 'chopMax', 'houseDays', 'atmDays', 'bankDays', 'alarmQuiet', 'alarmLoud']),
-  gang: rec(['hideCost', 'gunCost', 'turfIncome', 'seizeMin', 'seizeMax', 'retake', 'raid', 'guards', 'thugHp', 'gunDamage', 'gunHit', 'gunRange', 'thugHit', 'thugDamage', 'shotSeen', 'shotUnseen', 'downLoss', 'war', 'warnDist']),
+  gang: rec(['hideCost', 'gunCost', 'turfIncome', 'seizeMin', 'seizeMax', 'retake', 'raid', 'guards', 'thugHp', 'gunDamage', 'gunHit', 'gunRange', 'thugHit', 'thugDamage', 'shotSeen', 'shotUnseen', 'downLoss', 'war', 'warnDist', 'pvpDamage']),
   heist: z.object({ seeTime: pos, conbini: prof, jewel: prof, bank: prof }),
   traffic: rec(['cars', 'parked', 'peds', 'radius', 'arterialSpeed', 'minorSpeed']),
 });

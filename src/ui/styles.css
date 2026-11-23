@@ -46,6 +46,8 @@ button:disabled { cursor: default; }
 
 /* 建物の中では、知らせを少し下げる（右上の札と重ならないように） */
 .app[data-in] .toasts { top: 196px; }
+/* いっしょに遊んでいる人の数（同じページをいま開いている人） */
+.mates { position: absolute; left: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); padding: 6px 13px; border-radius: 99px; background: #19a7b8; color: #fff; font-weight: 900; font-size: 17px; box-shadow: 0 8px 16px -8px rgba(15, 80, 90, 0.8); z-index: 4; pointer-events: none; }
 /* 立入禁止の所にいる */
 .zone-chip { padding: 5px 12px; border-radius: 99px; background: #ffd34d; color: var(--ink); font-weight: 900; font-size: 17px; }
 /* 警報が鳴っている間：画面のふちが、ゆっくり赤く脈打つ（1秒に1回。速い点滅はしない） */

@@ -118,7 +118,8 @@
     "shotUnseen": 3,
     "downLoss": 0.3,
     "war": 0.25,
-    "warnDist": 24
+    "warnDist": 24,
+    "pvpDamage": 20
   },
   "heist": {
     "seeTime": 0.6,
