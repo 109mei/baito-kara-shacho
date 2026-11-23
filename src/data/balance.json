@@ -398,5 +398,18 @@
     "rivalStall": 60000,
     "rivalShop": 150000,
     "rivalCut": 0.2
+  },
+  "law": {
+    "lawyer": 300000,
+    "lawyerCut": 0.7,
+    "surrender": 0.5,
+    "auditBase": 0.1,
+    "auditHide": 0.2,
+    "auditMix": 0.5,
+    "penalty": 1.35,
+    "auditCredit": -100,
+    "caseHours": 2,
+    "caseAlarm": 1.6,
+    "caseDays": 2
   }
 }

@@ -55,6 +55,9 @@ interface Store {
   staff: (id: number, act: Extract<Cmd, { type: 'staff' }>['act'], k?: 0 | 1 | 2) => void;
   wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
+  exportSave: () => string; // セーブを文字にして書き出す
+  importSave: (text: string) => boolean; // 文字から読み込む
+  rewind: (i: number) => boolean; // 1日の終わりの保存（直近3回分）に戻す
   fire: () => void;
   bigMap: boolean;
   fade: number;
@@ -263,6 +266,23 @@ export const useGame = create<Store>((set, get) => {
       const p = city.pois[poi];
       get().send({ type: 'way', x: p.x, y: p.y });
       set({ hub: false });
+    },
+    exportSave: () => SaveStore.exportText(toSave(core)),
+    importSave: (text) => {
+      const d = SaveStore.importText(text);
+      if (!d || d.seed !== CITY_SEED) return false;
+      core = fromSave(d, city, b);
+      SaveStore.save(toSave(core));
+      set({ hud: snapshot(), bigMap: false, panel: null });
+      return true;
+    },
+    rewind: (i) => {
+      const d = SaveStore.snapshots()[i];
+      if (!d || d.seed !== CITY_SEED) return false;
+      core = fromSave(d, city, b);
+      SaveStore.save(toSave(core));
+      set({ hud: snapshot(), bigMap: false, panel: null });
+      return true;
     },
     borrow: (kind, amount, plan) => {
       const id = get().loan;

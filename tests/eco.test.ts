@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
-import { addCredit, capCredit, closeMonth, dateOf, loanOffers, monthlyPay, newEco, rankOf, takeLoan } from '../src/core/eco';
+import { addCredit, auditChance, capCredit, closeMonth, dateOf, loanOffers, monthlyPay, newEco, rankOf, takeLoan } from '../src/core/eco';
 import { apply, createGame, fromSave, monthLiving, step, toSave } from '../src/core/sim';
 import { balance as b } from '../src/data/schema';
 
@@ -8,7 +8,7 @@ const city = makeCity(20261123, b);
 const dpm = b.time.daysPerMonth;
 // 月を n 回締める（商売なし・給料なし）
 const months = (e: ReturnType<typeof newEco>, n: number, w: Partial<Parameters<typeof closeMonth>[1]> = {}) => {
-  let out: ReturnType<typeof closeMonth> = { cash: w.cash ?? 1e9, bank: 0, bankrupt: false, rec: null as unknown as ReturnType<typeof closeMonth>['rec'] };
+  let out: ReturnType<typeof closeMonth> = { cash: w.cash ?? 1e9, bank: 0, bankrupt: false, caught: 0, rec: null as unknown as ReturnType<typeof closeMonth>['rec'] };
   for (let i = 0; i < n; i++) {
     e.days += dpm;
     out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: false, ...w, ...(i > 0 ? { cash: out.cash } : {}) }, b);
@@ -181,3 +181,67 @@ describe('お金の決まり（街の中で）', () => {
     expect(s.eco.credit).toBe(b.credit.arrestCap);
   });
 });
+
+describe('裏の道の残り（税・自首・弁護士・下見）', () => {
+  const yearEnd = (hide: number, audit: number, mixed = 0) => {
+    const e = newEco(b);
+    e.days = dpm * 12;
+    e.yearProfit = 1000000;
+    e.yearSales = 2000000;
+    e.hide = hide;
+    e.mixed = mixed;
+    e.credit = 500;
+    const out = closeMonth(e, { cash: 1e9, bank: 0, living: 0, wages: 0, rent: 0, hasBiz: true, audit }, b);
+    return { e, out };
+  };
+  it('少なく申告すると税が減る。調査の見込みは 10% + 隠した割合 × 20%。見つかると、隠した税の 1.35倍', () => {
+    expect(yearEnd(0, 0).e.tax[0].amount).toBe(200000);
+    const e0 = newEco(b);
+    e0.hide = 0.3;
+    expect(auditChance(e0, b)).toBeCloseTo(0.16);
+    const safe = yearEnd(0.3, 0.9);
+    expect(safe.e.tax[0].amount).toBe(140000);
+    const hit = yearEnd(0.3, 0.05);
+    expect(hit.e.tax[0].amount).toBe(200000 + Math.round(60000 * 0.35));
+    expect(hit.e.credit).toBeLessThan(safe.e.credit);
+    expect(hit.e.hide).toBe(0);
+  });
+  it('売上に混ぜると、混ぜた額 ÷ 売上 × 50% だけ調査の見込みが上がり、見つかると没収', () => {
+    const e = newEco(b);
+    e.mixed = 400000;
+    e.yearSales = 2000000;
+    expect(auditChance(e, b)).toBeCloseTo(0.1);
+    expect(yearEnd(0, 0.05, 400000).out.caught).toBe(400000);
+    expect(yearEnd(0, 0.5, 400000).out.caught).toBe(0);
+  });
+  it('自首すると、罰金と出られるまでの時間が半分。弁護士がいると、さらに7割の長さ', () => {
+    const bust = (self: boolean, lawyer: boolean) => {
+      const s = createGame(7, city, b);
+      const p = city.pois.find((q) => q.kind === 'police')!;
+      s.x = p.x;
+      s.y = p.y;
+      s.cash = 1000000;
+      s.heat = 90;
+      s.firm.lawyer = lawyer;
+      const ev = self ? apply(s, city, { type: 'poi', id: p.id, act: 'surrender' }, b) : ((s.catchT = 99), step(s, city, { mx: 0, my: 0 }, b));
+      const e = ev.find((x) => x.type === 'busted');
+      return e && e.type === 'busted' ? e : null;
+    };
+    const full = bust(false, false)!;
+    const half = bust(true, false)!;
+    expect(half.fine / full.fine).toBeCloseTo(b.law.surrender, 2);
+    expect(half.hours).toBe(full.hours * b.law.surrender);
+    expect(bust(false, true)!.hours).toBe(Math.round(full.hours * b.law.lawyerCut));
+  });
+  it('下見をすると、その家の通報までの時間が延びる', () => {
+    const s = createGame(7, city, b);
+    const h = city.pois.find((q) => q.kind === 'house')!;
+    s.x = h.x;
+    s.y = h.y;
+    s.crowbar = true;
+    apply(s, city, { type: 'poi', id: h.id, act: 'case' }, b);
+    apply(s, city, { type: 'enter', id: h.id, hits: 3 }, b);
+    expect(s.inside!.alarm).toBeCloseTo(b.crime.alarmQuiet * b.law.caseAlarm);
+  });
+});
+

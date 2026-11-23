@@ -389,3 +389,20 @@ test('屋台：窓口で講習を受け、空き店舗で屋台を出し、広�
   await expect(page.locator('[data-shop="stall"]')).toBeVisible();
 });
 
+test('セーブを文字で書き出して、読み込める。字の大きさを3段から選べる', async ({ page }) => {
+  await fresh(page);
+  await page.locator('[data-start="new"]').click();
+  await page.locator('[data-minimap]').click();
+  await page.locator('[data-text]').last().click();
+  await expect(page.locator('[data-app]')).toHaveAttribute('data-text', '1');
+  await page.locator('[data-savebtn]').click();
+  const text = await page.locator('[data-savebox] textarea').inputValue();
+  expect(JSON.parse(text).cash).toBe(30000);
+  await page.locator('[data-savebox] textarea').fill(text.replace('"cash":30000', '"cash":77777'));
+  await page.waitForTimeout(200);
+  await shot(page, '26-save-box');
+  await page.locator('[data-import]').click();
+  await expect.poll(async () => (await state(page)).cash).toBe(77777);
+  await expect(page.locator('[data-bigmap]')).toHaveCount(0);
+});
+

@@ -229,3 +229,11 @@ button:disabled { cursor: default; }
 .gig .btns { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip:disabled { opacity: 0.4; }
 .sheet .line .sub { display: block; font-size: 15px; font-weight: 700; color: var(--sub); }
+
+/* 文字の大きさ（3段）：絵はそのまま、字のある部品だけ大きくする */
+.app[data-text='1'] .plate, .app[data-text='1'] .sheet, .app[data-text='1'] .report, .app[data-text='1'] .busted, .app[data-text='1'] .toast, .app[data-text='1'] .goal, .app[data-text='1'] .hubbtn { zoom: 1.12; }
+.app[data-text='2'] .plate, .app[data-text='2'] .sheet, .app[data-text='2'] .report, .app[data-text='2'] .busted, .app[data-text='2'] .toast, .app[data-text='2'] .goal, .app[data-text='2'] .hubbtn { zoom: 1.25; }
+/* セーブの書き出しと読み込み */
+.savebox { margin: 4px 0 8px; padding: 10px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px rgba(27, 35, 48, 0.09); display: flex; flex-direction: column; gap: 6px; }
+.savebox textarea { width: 100%; height: 64px; border: 1px solid var(--line); border-radius: 10px; padding: 6px; font: 12px/1.3 ui-monospace, monospace; resize: none; user-select: text; -webkit-user-select: text; }
+.savebox .btns { display: flex; flex-wrap: wrap; gap: 5px; }

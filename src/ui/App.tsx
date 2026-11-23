@@ -134,6 +134,12 @@ function BigMap() {
   const send = useGame((s) => s.send);
   const way = useGame((s) => s.hud.way);
   const tools = useGame((s) => s.hud.tools);
+  const exportSave = useGame((s) => s.exportSave);
+  const importSave = useGame((s) => s.importSave);
+  const rewind = useGame((s) => s.rewind);
+  const [box, setBox] = useState(false);
+  const [msg, setMsg] = useState('');
+  const area = useRef<HTMLTextAreaElement>(null);
   const grade = useGame((s) => s.hud.grade);
   const credit = useGame((s) => s.hud.credit);
   const prefs = useGame((s) => s.prefs);
@@ -218,9 +224,23 @@ function BigMap() {
         </div>
         <div className="tools" data-credit><b>信用</b><span>ランク {grade}（{credit}点）</span></div>
         {tools.length > 0 && <div className="tools" data-tools><b>持ち物</b>{tools.map((t) => <span key={t}>{t}</span>)}</div>}
+        {box && (
+          <div className="savebox" data-savebox>
+            <p className="hint">書き出した文字を控えておくと、別の端末でも続きから遊べる</p>
+            <textarea ref={area} defaultValue={exportSave()} spellCheck={false} />
+            <div className="btns">
+              <button className="chip on" data-copy onClick={() => { area.current?.select(); try { void navigator.clipboard?.writeText(area.current?.value ?? ''); } catch { /* 写せなければ、手で選んで写す */ } setMsg('写した'); }}>書き出す（写す）</button>
+              <button className="chip on" data-import onClick={() => setMsg(importSave(area.current?.value ?? '') ? '' : '読み込めなかった')}>この文字から読み込む</button>
+              {[0, 1, 2].map((i) => <button key={i} className="chip" data-rewind={i} onClick={() => setMsg(rewind(i) ? '' : 'その日の保存はない')}>{i + 1}日前の終わりに戻す</button>)}
+            </div>
+            {msg && <p className="hint" data-savemsg>{msg}</p>}
+          </div>
+        )}
         <div className="bigmap-foot">
           {way && <button className="btn small" data-noway onClick={() => send({ type: 'noway' })}>道案内を消す</button>}
           <button className="btn small" data-sound onClick={() => setPrefs({ sound: !prefs.sound })}><Icon name={prefs.sound ? 'sound' : 'mute'} size={17} />音 {prefs.sound ? 'あり' : 'なし'}</button>
+          <button className="btn small" data-text={prefs.text} onClick={() => setPrefs({ text: (prefs.text + 1) % 3 })}>字 {['ふつう', '大きい', 'とても大きい'][prefs.text]}</button>
+          <button className="btn small" data-savebtn onClick={() => setBox(!box)}>セーブ</button>
           {sure
             ? <button className="btn small danger" data-reset="yes" onClick={() => start(true)}>本当に最初から</button>
             : <button className="btn small" data-reset onClick={() => setSure(true)}>最初から</button>}
@@ -526,6 +546,7 @@ function Game() {
   const panel = useGame((s) => s.panel);
   const mini = useGame((s) => s.mini);
   const routes = useGame((s) => s.routes);
+  const prefs = useGame((s) => s.prefs);
   const loan = useGame((s) => s.loan);
   const hub = useGame((s) => s.hub);
   const report = useGame((s) => s.report);
@@ -621,7 +642,7 @@ function Game() {
 
   const riding = hud.ride !== 'foot';
   return (
-    <div className="app" data-app data-ride={hud.ride} data-in={hud.inside ? '' : undefined}>
+    <div className="app" data-app data-ride={hud.ride} data-in={hud.inside ? '' : undefined} data-text={prefs.text}>
       <div className="stage" ref={stage} data-stage onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
       {stick && <div className="stick" style={{ left: stick.x, top: stick.y }}><i style={{ transform: `translate(${stick.dx}px, ${stick.dy}px)` }} /></div>}
       <div key={fade} className={fade ? 'flash' : ''} />

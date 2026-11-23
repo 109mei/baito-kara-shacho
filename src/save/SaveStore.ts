@@ -79,6 +79,7 @@ export const SaveStore = {
 export interface Prefs {
   sound: boolean;
   calm: boolean;
+  text: number; // 文字の大きさ（0 ふつう・1 大きい・2 とても大きい）
 }
 export function loadPrefs(): Prefs {
   let calm = false;
@@ -91,12 +92,12 @@ export function loadPrefs(): Prefs {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) {
       const p = JSON.parse(raw) as Partial<Prefs>;
-      return { sound: p.sound !== false, calm: typeof p.calm === 'boolean' ? p.calm : calm };
+      return { sound: p.sound !== false, calm: typeof p.calm === 'boolean' ? p.calm : calm, text: p.text === 1 || p.text === 2 ? p.text : 0 };
     }
   } catch {
     /* 読めなければ初期の値 */
   }
-  return { sound: true, calm };
+  return { sound: true, calm, text: 0 };
 }
 export function savePrefs(p: Prefs) {
   try {

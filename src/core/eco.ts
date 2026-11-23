@@ -34,11 +34,14 @@ export interface Eco {
   events: { kind: EventKind; month: number }[]; // 予告された出来事（起きる月）
   fx: EventKind[]; // 今月 起きている出来事
   insured: boolean; // 保険に入っている
+  hide: number; // もうけを隠して申告する割合（0・0.3・0.6）
+  mix: boolean; // 店の売上に、汚れたお金を混ぜる
+  mixed: number; yearSales: number; // 今年 混ぜた額と、今年の売上（税務調査の見込みに使う）
   hist: MonthRec[];
 }
 
 export const newEco = (bal: Balance): Eco => ({
-  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hist: [],
+  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hide: 0, mix: false, mixed: 0, yearSales: 0, hist: [],
 });
 
 // 景気：好況 → 後退 → 不況 → 回復 の順に回る。客と注文、人の集まりやすさ、物件の値段が変わる
@@ -157,8 +160,10 @@ export const monthBills = (e: Eco, living: number, bal: Balance) =>
   e.owed.reduce((a, b) => a + b.amount, 0) + e.loans.reduce((a, l) => a + Math.min(l.pay, l.left + Math.round((l.left * l.rate) / 12)), 0) + living + e.tax.filter((t) => t.due <= monthOf(e, bal)).reduce((a, t) => a + t.amount, 0);
 
 // ---- 月末の締め
-export interface CloseIn { cash: number; bank: number; living: number; wages: number; rent: number; hasBiz: boolean }
-export interface CloseOut { cash: number; bank: number; rec: MonthRec; bankrupt: boolean }
+export interface CloseIn { cash: number; bank: number; living: number; wages: number; rent: number; hasBiz: boolean; audit?: number } // audit＝税務調査のくじ（0〜1。年末だけ使う）
+export interface CloseOut { cash: number; bank: number; rec: MonthRec; bankrupt: boolean; caught: number } // caught＝税務調査で見つかった、混ぜたお金の額
+// 税務調査の見込み：隠すと 10% + 隠した割合 × 20%。売上に混ぜると、混ぜた額 ÷ 売上 × 50% が足される
+export const auditChance = (e: Eco, bal: Balance) => (e.hide > 0 ? bal.law.auditBase + e.hide * bal.law.auditHide : 0) + (e.yearSales > 0 ? (e.mixed / e.yearSales) * bal.law.auditMix : 0);
 // 払う順：待ってもらっていた分 → 給料 → 家賃と光熱費 → 返済と利息 → 生活費 → 税。現金、預金の順に引く。
 // 払えない物は来月へ回る（3% 上乗せ・信用が下がる）。回した物が次の月末にも払えないと、倒産。
 export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
@@ -207,6 +212,8 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
   // 商売のもうけ（給料と家賃は商売の経費）
   const profit = e.m.sales - e.m.cost - w.wages - w.rent;
   e.yearProfit += profit;
+  e.yearSales += e.m.sales;
+  let caught = 0;
   if (w.hasBiz) {
     addCredit(e, C.run, bal);
     if (profit > 0) addCredit(e, C.black, bal);
@@ -231,7 +238,20 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
   // 年末：決算。税は 2か月後に納める。物の値段は年に 2% 上がる
   const mInYear = (month % bal.time.monthsPerYear) + 1;
   if (mInYear === bal.time.monthsPerYear) {
-    const t = Math.round(Math.max(0, e.yearProfit) * bal.tax.person);
+    const full = Math.round(Math.max(0, e.yearProfit) * bal.tax.person);
+    let t = Math.round(full * (1 - e.hide)); // 少なく申告すると、そのぶん税が減る
+    // 税務調査：見つかると、隠した税の 1.35倍 を払い、信用が下がる。混ぜたお金は没収される
+    const chance = auditChance(e, bal);
+    if (chance > 0 && (w.audit ?? 1) < chance) {
+      if (e.hide > 0) t = full + Math.round((full - t) * (bal.law.penalty - 1));
+      caught = e.mixed;
+      addCredit(e, bal.law.auditCredit, bal);
+      notes.push(`税務調査が入った${e.hide > 0 ? `。隠した分に上乗せして、税 ${yen(t)}` : ''}${caught > 0 ? `。売上に混ぜた ${yen(caught)} は没収` : ''}`);
+      e.hide = 0;
+      e.mix = false;
+    } else if (e.hide > 0) notes.push(`少なく申告して、税が ${yen(full - t)} 減った（調査の見込みは ${Math.round(chance * 100)}%だった）`);
+    e.mixed = 0;
+    e.yearSales = 0;
     if (t > 0) e.tax.push({ amount: t, due: month + bal.tax.delayMonths });
     if (e.yearProfit > 0) addCredit(e, C.goodYear, bal);
     notes.push(`決算：今年のもうけ ${yen(e.yearProfit)}${t > 0 ? `、税 ${yen(t)}（${bal.tax.delayMonths}か月後に納める）` : ''}`);
@@ -245,5 +265,5 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
   e.hist.push(rec);
   if (e.hist.length > 36) e.hist.shift();
   e.m = { sales: 0, cost: 0 };
-  return { cash, bank, rec, bankrupt };
+  return { cash, bank, rec, bankrupt, caught };
 }

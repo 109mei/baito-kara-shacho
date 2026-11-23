@@ -32,8 +32,9 @@ export interface Firm {
   asked: Record<number, number>; // 面接で使った質問の数（人ごと。3つまで）
   aparts: Apart[];
   permits: string[]; // 持っている資格・許可
+  lawyer: boolean; // 弁護士を頼んである（次に捕まったとき、出られるまでが短くなる。1回で切れる）
 }
-export const newFirm = (): Firm => ({ staff: [], pool: [], nextStaff: 1, post: null, asked: {}, aparts: [], permits: [] });
+export const newFirm = (): Firm => ({ staff: [], pool: [], nextStaff: 1, post: null, asked: {}, aparts: [], permits: [], lawyer: false });
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`;
 
