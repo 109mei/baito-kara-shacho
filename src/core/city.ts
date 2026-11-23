@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 
 export type District = 'downtown' | 'commercial' | 'residential' | 'industrial' | 'park' | 'water';
-export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house' | 'hideout' | 'gang' | 'jewel' | 'market' | 'office' | 'apart';
+export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house' | 'hideout' | 'gang' | 'jewel' | 'market' | 'office' | 'apart' | 'land';
 export interface Poi { id: number; kind: PoiKind; x: number; y: number; district: District; traffic: number }
 export interface Block { i: number; j: number; x0: number; y0: number; x1: number; y1: number; d: District; b: Float32Array }
 export interface City {
@@ -234,6 +234,7 @@ export function makeCity(seed: number, bal: Balance): City {
   take('market', 4, (b) => com(b) || res(b), 1700);
   take('office', 3, com, 2200);
   take('apart', 8, res, 800);
+  take('land', 16, (b) => b.d !== 'park' && b.d !== 'water', 500); // 空き地（買える土地）
 
   return { seed, size: S, xs, ys, ax, ay, h, v, ok, blocks, pois, home, bridges: [...bridgeSet], half, coast, river };
 }

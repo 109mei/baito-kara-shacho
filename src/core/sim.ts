@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
-import { apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
+import { landIncome, landPrice, LAND_USE, type Land, apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
 import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, releaseUnits, settleDeals, startMonth, startQ, unitsAt, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
@@ -79,7 +79,7 @@ export type Cmd =
   | { type: 'corp'; act: 'payUp' | 'payDown' | 'in' } // 法人：役員報酬を上げ下げする・自分のお金を会社に入れる
   | { type: 'bid'; id: number; act: 'low' | 'mid' | 'high' | 'call' } // 契約の話：見積を変える・通う
   | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'talk' | 'assign' | 'boss' | 'proc' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
-  | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
+  | { type: 'loan'; id: number; kind: 'start' | 'bank' | 'land'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
 // 作品の種類と、作り始める行動
@@ -102,7 +102,7 @@ export type HandKind = 'sort' | 'trace' | 'tap';
 export const HAND: Record<string, HandKind> = { craftSmall: 'sort', craftOrder: 'sort', gig: 'trace', deal: 'trace', dev: 'tap', tend: 'tap', fix: 'tap', deskGig: 'sort' };
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
 
-export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店', market: '売り場', office: '窓口', apart: 'アパート' };
+export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店', market: '売り場', office: '窓口', apart: 'アパート', land: '空き地' };
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`;
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -142,11 +142,24 @@ export function rank(s: GameState): string {
 }
 // 縄張り（横3×縦2）のとなり
 const TURF_NEXT = [[1, 3], [0, 2, 4], [1, 5], [0, 4], [1, 3, 5], [2, 4]];
+// 持っている土地
+export const landsOf = (s: GameState): Land[] => (s.firm.lands ??= []);
+// 土地のいまの値段（立地と景気で動く）
+export const landValue = (s: GameState, p: Poi, bal: Balance) => landPrice(p.traffic, bal, phaseOf(s.eco).estate);
+// 担保に入れていない土地の、いまの値段の合計
+export const freeLand = (s: GameState, city: City, bal: Balance) => landsOf(s).filter((l) => l.mort === undefined).reduce((a, l) => a + landValue(s, city.pois[l.poi], bal), 0);
+// 建てた土地は、建物の種類の場所として扱う（自分の店・アパート）
+export function kindOf(s: GameState, p: Poi): PoiKind {
+  if (p.kind !== 'land') return p.kind;
+  const use = landsOf(s).find((l) => l.poi === p.id)?.use;
+  return use === 'shop' ? 'lot' : use === 'apart' ? 'apart' : 'land';
+}
 // その場所は自分の物か（店・アジト・奪ったアジト）
 export function ownedPoi(s: GameState, city: City, q: Poi): boolean {
   if (q.kind === 'hideout') return s.hide === q.id;
   if (q.kind === 'gang') return s.turf[turfOf(city.size, q.x, q.y)] === -1;
   if (q.kind === 'apart') return s.firm.aparts.some((a) => a.poi === q.id);
+  if (q.kind === 'land') return landsOf(s).some((l) => l.poi === q.id);
   return s.biz.some((z) => z.poi === q.id);
 }
 // 表のお金で払う（現金、足りなければ預金から）
@@ -202,7 +215,7 @@ export function permitConds(s: GameState, kind: 'build' | 'haul' | 'guard', bal:
   ];
 }
 // 月の家賃と光熱費（求人サイトの掲載料と保険料も、ここに入れて払う）
-export const rentOf = (s: GameState, bal: Balance) => s.biz.reduce((a, z) => a + z.rent, 0) * bal.time.daysPerMonth + (s.firm.post?.site ? bal.staff.siteFee : 0) + (s.eco.insured ? bal.town.insure : 0) + s.biz.filter((z) => z.sec?.guard).length * bal.town.guardFee;
+export const rentOf = (s: GameState, bal: Balance) => s.biz.reduce((a, z) => a + z.rent, 0) * bal.time.daysPerMonth + (s.firm.post?.site ? bal.staff.siteFee : 0) + (s.eco.insured ? bal.town.insure : 0) + s.biz.filter((z) => z.sec?.guard).length * bal.town.guardFee + Math.round((s.firm.lands ?? []).reduce((a, l) => a + l.paid, 0) * bal.land.hold); // 土地の税も、ここに入れて払う
 // 月末の払いに足りない額（自分の分と、会社の分）
 export function shortOf(s: GameState, bal: Balance): { me: number; corp: number } {
   const b = billsOf(s.eco, monthLiving(s, bal), wagesOf(s.firm, bal), rentOf(s, bal), bal);
@@ -286,6 +299,8 @@ export function poiTitle(s: GameState, city: City, p: Poi): string {
   if (p.kind === 'hideout' && s.hide === p.id) return '自分のアジト';
   if (p.kind === 'gang') return ownedPoi(s, city, p) ? '奪ったアジト' : `${GANGS[s.turf[turfOf(city.size, p.x, p.y)]].name}のアジト`;
   if (p.kind === 'house' && s.tr.gigs.some((g) => g.taken && g.poi === p.id)) return 'お客さんの家';
+  const ld = p.kind === 'land' ? (s.firm.lands ?? []).find((l) => l.poi === p.id) : undefined;
+  if (ld && ld.use !== 'shop') return ld.use === 'none' ? '自分の土地' : ld.use === 'parking' ? '自分の駐車場' : ld.use === 'lease' ? '貸している土地' : '自分のアパート';
   const mine = s.biz.find((z) => z.poi === p.id);
   return mine ? (mine.type === 'stall' ? '自分の屋台' : mine.type === 'works' ? '自分の工房' : '自分の店') : POI_NAME[p.kind];
 }
@@ -305,7 +320,24 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
   const tr = s.tr;
   // 夜の仕事のために、夜まで時間を進める
   const NAP: Act = { id: 'nap', label: '夜まで休む', sub: '22時に起きる', ok: !s.seen && h >= 5 && h < 21, why: s.seen ? '警察に見られている' : 'もう夜' };
-  switch (p.kind) {
+  switch (kindOf(s, p)) {
+    case 'land': {
+      const L = bal.land;
+      const ld = landsOf(s).find((x) => x.poi === p.id);
+      const price = landValue(s, p, bal);
+      if (!ld) return [{ id: 'landBuy', label: 'この土地を買う', sub: `${yen(price)}／値段は景気で動く（いまは「${phaseOf(s.eco).name}」）。持っている間は、月に ${yen(price * L.hold)} の税`, ok: funds(s) >= price, why: '表のお金が足りない（銀行の融資も使える）' }];
+      const inc = landIncome(ld, p.traffic, price, bal);
+      const sell = Math.round(price * (1 - L.fee));
+      const SELL: Act = { id: 'landSell', label: '土地を売る', sub: ld.mort !== undefined ? '担保に入っている。借入を返し終わるまで売れない' : `${yen(sell)}（買った値段 ${yen(ld.paid)}・手数料 ${Math.round(L.fee * 100)}%）`, ok: ld.mort === undefined, why: '担保に入っている' };
+      if (ld.use !== 'none') return [{ id: 'landStop', label: '更地に戻す', sub: `いまは${LAND_USE[ld.use]}・月 ${yen(inc)}`, ok: true }, SELL];
+      return [
+        { id: 'landPark', label: '駐車場にする', sub: `${yen(L.parkSetup)}／月 ${yen(landIncome({ ...ld, use: 'parking' }, p.traffic, price, bal))}（人通りで決まる）`, ok: funds(s) >= L.parkSetup, why: 'お金が足りない' },
+        { id: 'landLease', label: '人に貸す', sub: `元手なし／月 ${yen(landIncome({ ...ld, use: 'lease' }, p.traffic, price, bal))}（土地の値段の ${L.lease * 100}%）`, ok: true },
+        { id: 'landApart', label: 'アパートを建てる', sub: `${yen(L.buildApart)}／新しい建物で、満室なら月 ${yen(bal.apart.rooms * bal.apart.unit - bal.apart.upkeep)}`, ok: funds(s) >= L.buildApart, why: 'お金が足りない' },
+        { id: 'landShop', label: '自分の店を建てる', sub: `${yen(L.buildShop)}／家賃も保証金もいらない店`, ok: funds(s) >= L.buildShop, why: 'お金が足りない' },
+        SELL,
+      ];
+    }
     case 'home':
       return [{ id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる・疲れが取れる', ok: !s.seen, why: '警察に見られている' }, NAP, ...homeActs(s, bal)];
     case 'market': {
@@ -612,7 +644,7 @@ const randK = (s: GameState, lo: number, hi: number) => Math.round((lo + (hi - l
 export function roomFor(s: GameState, city: City): Room | null {
   if (!s.inside) return null;
   const q = city.pois[s.inside.poi];
-  return roomOf(q.kind, ownedPoi(s, city, q));
+  return roomOf(kindOf(s, q), ownedPoi(s, city, q));
 }
 // いちばん近い「行動できる場所」（なければ -1）
 export function nearSpot(s: GameState, city: City): number {
@@ -705,10 +737,12 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   s.eco.days += 1;
   if (s.eco.days % bal.time.daysPerMonth === 0) {
     const ended = monthOf(s.eco, bal) - 1;
-    const active = s.biz.length > 0 || !!s.firm.line || s.firm.aparts.length > 0 || s.tr.deals.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
+    const active = s.biz.length > 0 || !!s.firm.line || landsOf(s).length > 0 || s.firm.aparts.length > 0 || s.tr.deals.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
     // 物件の家賃収入（資産型）。年末に、建物が少し傷む
     let estate = 0;
     for (const a of s.firm.aparts) estate += apartIncome(a, city.pois[a.poi].traffic, bal);
+    for (const l of landsOf(s)) estate += landIncome(l, city.pois[l.poi].traffic, landValue(s, city.pois[l.poi], bal), bal);
+    for (const l of landsOf(s)) if (l.mort !== undefined && !s.eco.loans.some((x) => x.id === l.mort)) delete l.mort; // 返し終わった借入の担保を外す
     bizIn(s, Math.max(0, estate));
     s.eco.m.sales += Math.max(0, estate);
     s.eco.m.cost += Math.max(0, -estate);
@@ -799,6 +833,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       s.biz = [];
       s.firm.staff = [];
       s.firm.aparts = [];
+      s.firm.lands = [];
       s.firm.line = null;
       s.firm.post = null;
       s.tr.deals = [];
@@ -812,6 +847,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       s.biz = [];
       s.firm.staff = [];
       s.firm.aparts = [];
+      s.firm.lands = [];
       s.firm.line = null;
       s.firm.post = null;
       const mine = s.cars.find((c) => c.kind === 'mine');
@@ -1075,12 +1111,13 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       toast('計画（月の売上の見込み）が要る');
       return ev;
     }
-    const loan = takeLoan(s.eco, cmd.kind, cmd.amount, funds(s), false, bal);
+    const loan = takeLoan(s.eco, cmd.kind, cmd.amount, funds(s), false, bal, freeLand(s, city, bal));
     if (!loan) {
       toast('審査に通らなかった');
       return ev;
     }
     if (cmd.kind === 'start') s.eco.plan = cmd.plan ?? 0;
+    if (cmd.kind === 'land') for (const l of landsOf(s)) if (l.mort === undefined) l.mort = loan.id; // 土地を担保に入れる
     if (s.eco.corp) loan.corp = true; // 会社の借入。自分が保証人になる
     bizIn(s, loan.amount);
     toast(`${yen(loan.amount)} を${s.eco.corp ? '会社で' : ''}借りた。毎月 ${yen(loan.pay)} ずつ返す`, 'good');
@@ -1270,7 +1307,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       toast('見張りがいる。倒さないと入れない', 'bad');
       return ev;
     }
-    const room = roomOf(q.kind, ownedPoi(s, city, q));
+    const room = roomOf(kindOf(s, q), ownedPoi(s, city, q));
     if (!room) return ev;
     let alarm = -1;
     let crime = false;
@@ -1794,7 +1831,9 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'closeShop': {
       const z = s.biz.find((x) => x.poi === p.id);
       if (!z) break;
-      const back = z.deposit || bal.biz.stall / 2;
+      const own = landsOf(s).find((l) => l.poi === p.id); // 自分の土地に建てた店は、たたむと更地に戻る（建物のお金は戻らない）
+      const back = own ? 0 : z.deposit || bal.biz.stall / 2;
+      if (own) own.use = 'none';
       bizIn(s, back, true);
       s.biz = s.biz.filter((x) => x !== z);
       for (const q of s.firm.staff) if (q.at === p.id) q.at = -1;
@@ -1838,6 +1877,59 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       s.firm.post = null;
       toast('求人をやめた');
       break;
+    case 'landBuy': {
+      const price = landValue(s, p, bal);
+      if (!landsOf(s).some((l) => l.poi === p.id) && payBiz(s, price)) {
+        landsOf(s).push({ poi: p.id, paid: price, use: 'none' });
+        toast('土地を買った。駐車場にする・貸す・建てる・値上がりを待つ', 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      }
+      break;
+    }
+    case 'landPark':
+    case 'landLease':
+    case 'landStop':
+    case 'landApart':
+    case 'landShop':
+    case 'landSell': {
+      const L = bal.land;
+      const ld = landsOf(s).find((l) => l.poi === p.id);
+      if (!ld) break;
+      if (cmd.act === 'landSell') {
+        if (ld.mort !== undefined || ld.use === 'apart' || ld.use === 'shop') break;
+        const got = Math.round(landValue(s, p, bal) * (1 - L.fee));
+        bizIn(s, got);
+        if (got >= ld.paid) s.eco.m.sales += got - ld.paid; // 値上がりのもうけは、商売のもうけに入る
+        else s.eco.m.cost += ld.paid - got;
+        s.firm.lands = landsOf(s).filter((l) => l !== ld);
+        toast(`土地を売った　${yen(got)}（${got >= ld.paid ? '+' : '−'}${yen(Math.abs(got - ld.paid))}）`, got >= ld.paid ? 'good' : '');
+        ev.push({ type: 'sfx', name: 'coin' });
+      } else if (cmd.act === 'landStop') {
+        if (ld.use === 'parking' || ld.use === 'lease') ld.use = 'none';
+      } else if (ld.use !== 'none') break;
+      else if (cmd.act === 'landLease') {
+        ld.use = 'lease';
+        toast('土地を貸した。地代は月末に入る', 'good');
+      } else if (cmd.act === 'landPark') {
+        if (!payBiz(s, L.parkSetup)) break;
+        s.eco.m.cost += L.parkSetup;
+        ld.use = 'parking';
+        toast('駐車場にした。料金は月末に入る', 'good');
+      } else if (cmd.act === 'landApart') {
+        if (!payBiz(s, L.buildApart)) break;
+        ld.use = 'apart';
+        s.firm.aparts.push({ poi: p.id, rent: 1, state: 1, paid: L.buildApart });
+        toast('アパートを建てた。家賃は月末に入る', 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      } else if (cmd.act === 'landShop') {
+        if (!payBiz(s, L.buildShop)) break;
+        ld.use = 'shop';
+        s.biz.push(newShop('shop', p.id, 0, 0, dayOf(s), bal));
+        toast('自分の店を建てた。家賃はかからない。店に立つか、人を雇う', 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      }
+      break;
+    }
     case 'buyApart': {
       const price = apartPrice(p.traffic, bal, phaseOf(s.eco).estate);
       if (payBiz(s, price)) {

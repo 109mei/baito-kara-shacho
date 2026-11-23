@@ -1,10 +1,10 @@
 // 画面。街の絵は PixiJS が描き、React は上に重ねる表示と札だけを受け持つ。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CREW, crewOf, DEV, hasKey, POI_NAME, poiActions, poiTitle, rank, routesOf, type Act } from '../core/sim';
+import { CREW, crewOf, DEV, freeLand, landsOf, landValue, hasKey, POI_NAME, poiActions, poiTitle, rank, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
-import { apartFill, apartIncome, PROC_NAMES, seen as seenStat, type Staff } from '../core/shop';
+import { apartFill, apartIncome, landIncome, LAND_USE, PROC_NAMES, seen as seenStat, type Staff } from '../core/shop';
 import { crewUsed, DEAL_NAME, devHours, releaseUnits, fameOf, left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { rankIndex } from '../core/eco';
 import { mateColor, net } from '../net/room';
@@ -452,7 +452,13 @@ function Hub() {
             </div>
           </div>
         )}
-        {s.firm.aparts.length > 0 && <h3>物件</h3>}
+        {(s.firm.aparts.length > 0 || landsOf(s).length > 0) && <h3>物件</h3>}
+        {landsOf(s).map((l) => (
+          <div key={l.poi} className="gig" data-land>
+            <span><b>土地</b>（{LAND_USE[l.use]}）　いま {yen(landValue(s, city.pois[l.poi], b))}<small>買った値段 {yen(l.paid)}{l.use === 'parking' || l.use === 'lease' ? `・月 ${yen(landIncome(l, city.pois[l.poi].traffic, landValue(s, city.pois[l.poi], b), b))}` : ''}{l.mort !== undefined ? '・担保に入っている' : ''}</small></span>
+            <button className="chip on" onClick={() => wayTo(l.poi)}>道案内</button>
+          </div>
+        ))}
         {s.firm.aparts.map((a) => (
           <div key={a.poi} className="gig" data-apart>
             <span><b>アパート</b>　{Math.round(apartFill(a, city.pois[a.poi].traffic) * b.apart.rooms)}/{b.apart.rooms}室・月 {yen(apartIncome(a, city.pois[a.poi].traffic, b))}<small>家賃 相場の{Math.round(a.rent * 100)}%・建物の状態 {Math.round(a.state * 100)}%</small></span>
@@ -503,7 +509,7 @@ function LoanSheet() {
   const [plan, setPlan] = useState(0);
   const s = getCore();
   const own = Math.max(0, s.cash) + Math.max(0, s.bank);
-  const offers = loanOffers(s.eco, own, false, b);
+  const offers = loanOffers(s.eco, own, false, b, freeLand(s, city, b));
   return (
     <div className="veil" data-loan onClick={(e) => { if (e.target === e.currentTarget) set({ loan: null }); }}>
       <div className="sheet">

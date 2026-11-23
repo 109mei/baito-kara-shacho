@@ -567,5 +567,20 @@
     "fanBuy": 0.3,
     "teamHours": 6,
     "oldPc": 0.75
+  },
+  "land": {
+    "price": 1500000,
+    "hold": 0.0012,
+    "fee": 0.03,
+    "parkSetup": 200000,
+    "parkLots": 8,
+    "parkUnit": 2500,
+    "parkUpkeep": 2000,
+    "lease": 0.004,
+    "buildApart": 2200000,
+    "buildShop": 800000,
+    "ltv": 0.6,
+    "loanCut": 0.02,
+    "loanMonths": 36
   }
 }

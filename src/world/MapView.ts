@@ -14,7 +14,7 @@ export const WATER = 0xa9d3e6;
 export const BLOCK: Record<District, number> = { downtown: 0xe9dcea, commercial: 0xf6dcd6, residential: 0xe7e2d8, industrial: 0xdfe1ec, park: 0xcdebc0, water: WATER };
 export const ROAD = { minor: 0xffffff, minorEdge: 0xcbc5b8, major: 0xf9c97c, majorEdge: 0xd9993c };
 export const PIN: Record<PoiKind | 'biz' | 'myhide' | 'myturf', { c: number; t: string }> = {
-  jewel: { c: 0x0f9aa8, t: '宝' }, market: { c: 0xc2703d, t: '売' }, office: { c: 0x4a6fa5, t: '窓' }, apart: { c: 0x7a8f3c, t: '貸' }, gang: { c: 0x8f1d2c, t: '敵' }, hideout: { c: 0x4b5563, t: '隠' }, myhide: { c: 0xe0a100, t: 'ア' }, myturf: { c: 0xe0a100, t: '縄' },
+  jewel: { c: 0x0f9aa8, t: '宝' }, market: { c: 0xc2703d, t: '売' }, office: { c: 0x4a6fa5, t: '窓' }, apart: { c: 0x7a8f3c, t: '貸' }, land: { c: 0x8a6d3b, t: '地' }, gang: { c: 0x8f1d2c, t: '敵' }, hideout: { c: 0x4b5563, t: '隠' }, myhide: { c: 0xe0a100, t: 'ア' }, myturf: { c: 0xe0a100, t: '縄' },
   home: { c: 0x1b2330, t: '家' }, conbini: { c: 0x5b6b7a, t: '働' }, warehouse: { c: 0x5b6b7a, t: '働' },
   bike: { c: 0x2f7fc1, t: '輪' }, car: { c: 0x2f7fc1, t: '車' }, tool: { c: 0x2f7fc1, t: '具' },
   pawn: { c: 0x7b3fa0, t: '質' }, chop: { c: 0x7b3fa0, t: '解' }, atm: { c: 0x7b3fa0, t: 'A' }, house: { c: 0x7b3fa0, t: '留' },

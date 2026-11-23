@@ -39,6 +39,7 @@ export interface Firm {
   post: { site: boolean; wage: number } | null; // 出している求人（張り紙か求人サイト、出した日給）
   asked: Record<number, number>; // 面接で使った質問の数（人ごと。3つまで）
   aparts: Apart[];
+  lands?: Land[]; // 持っている土地
   permits: string[]; // 持っている資格・許可
   line: Line | null; // バスの路線（路線型）
   lawyer: boolean; // 弁護士を頼んである（次に捕まったとき、出られるまでが短くなる。1回で切れる）
@@ -237,6 +238,12 @@ export function monthStaff(firm: Firm, shops: Shop[], rnd: () => number, bal: Ba
 export const wagesOf = (firm: Firm, bal: Balance) => firm.staff.reduce((a, p) => a + p.wage, 0) * bal.time.daysPerMonth;
 
 // ---- 資産型：月の収入 ＝ 単価 × 埋まっている割合 − 維持費
+// 土地：買って、そのまま持つ・駐車場にする・貸す・建てる。値段は立地と景気で動く。mort＝担保に入れている借入の番号
+export interface Land { poi: number; paid: number; use: 'none' | 'parking' | 'lease' | 'apart' | 'shop'; mort?: number }
+export const landPrice = (traffic: number, bal: Balance, estateK = 1) => Math.round((bal.land.price * (0.4 + traffic) * estateK) / 10000) * 10000;
+// 月の収入：駐車場＝台数 × 1台の料金 × 立地 − 維持費。貸す＝土地の値段 × 地代の率
+export const landIncome = (l: Land, traffic: number, value: number, bal: Balance) => (l.use === 'parking' ? Math.round(bal.land.parkLots * bal.land.parkUnit * clamp(traffic, 0.3, 1.6) - bal.land.parkUpkeep) : l.use === 'lease' ? Math.round(value * bal.land.lease) : 0);
+export const LAND_USE: Record<Land['use'], string> = { none: '更地', parking: '駐車場', lease: '貸している', apart: 'アパート', shop: '自分の店' };
 export const apartPrice = (traffic: number, bal: Balance, estateK = 1) => Math.round((bal.apart.price * (0.6 + 0.4 * traffic) * estateK) / 10000) * 10000;
 export const apartFill = (a: Apart, traffic: number) => clamp((Math.min(100, 55 * traffic) / 100) * (1 / a.rent) * a.state * 1.4, 0, 1); // 立地 ×（相場 ÷ 値段）× 状態
 export const apartIncome = (a: Apart, traffic: number, bal: Balance) => Math.round(bal.apart.rooms * bal.apart.unit * a.rent * apartFill(a, traffic) - bal.apart.upkeep);

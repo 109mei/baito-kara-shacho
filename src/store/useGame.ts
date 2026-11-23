@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
 import { dateOf, rankOf, type MonthRec } from '../core/eco';
 import { blocked } from '../core/rooms';
-import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, needOf, HAND, type HandKind } from '../core/sim';
+import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, needOf, kindOf, HAND, type HandKind } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -59,7 +59,7 @@ interface Store {
   corp: (act: Extract<Cmd, { type: 'corp' }>['act']) => void;
   line: (act: Extract<Cmd, { type: 'line' }>['act']) => void;
   wayTo: (poi: number) => void;
-  borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
+  borrow: (kind: 'start' | 'bank' | 'land', amount: number, plan: number) => void;
   exportSave: () => string; // セーブを文字にして書き出す
   importSave: (text: string) => boolean; // 文字から読み込む
   rewind: (i: number) => boolean; // 1日の終わりの保存（直近3回分）に戻す
@@ -343,7 +343,7 @@ export const useGame = create<Store>((set, get) => {
         get().toast('乗り物を降りてから入る', '');
         return;
       }
-      if (core.ride !== null || p.kind === 'atm' || p.kind === 'chop') {
+      if (core.ride !== null || p.kind === 'atm' || p.kind === 'chop' || kindOf(core, p) === 'land') {
         set({ panel: id, panelActs: null });
         return;
       }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { custK, newEco, PHASES, turnMonth } from '../src/core/eco';
-import { applyCount, apartFill, apartIncome, arriveRate, askOne, burgleChance, secOf, dayWorks, lineDay, makeStaff, newFirm, newShop, openConds, procCaps, rivalsReact, seen, serve } from '../src/core/shop';
-import { apply, createGame, fromSave, fuzz, poiActions, rank, toSave } from '../src/core/sim';
+import { applyCount, apartFill, apartIncome, arriveRate, askOne, burgleChance, secOf, dayWorks, lineDay, makeStaff, newFirm, newShop, openConds, procCaps, rivalsReact, seen, serve, landIncome, landPrice } from '../src/core/shop';
+import { apply, createGame, fromSave, fuzz, poiActions, rank, toSave, freeLand, kindOf, landsOf, landValue, poiTitle } from '../src/core/sim';
+import { loanOffers } from '../src/core/eco';
 import { balance as b } from '../src/data/schema';
 
 const city = makeCity(20261123, b);
@@ -446,5 +447,89 @@ describe('狙われる側（空き巣と防犯）', () => {
     go(s, lot, 'secGuard');
     expect(s.biz[0].sec).toEqual({ lock: true, cam: true, guard: true });
     expect(secOf(s.biz[0], b)).toBeCloseTo(0.9);
+  });
+});
+
+describe('土地', () => {
+  const land = city.pois.find((p) => p.kind === 'land')!;
+  const rich = () => {
+    const s = createGame(7, city, b);
+    s.cash = 9000000;
+    s.clock = 10 * 60;
+    return s;
+  };
+  it('街に空き地がある。値段は立地と景気で動く', () => {
+    expect(city.pois.filter((p) => p.kind === 'land').length).toBeGreaterThanOrEqual(10);
+    expect(landPrice(1.6, b)).toBeGreaterThan(landPrice(0.55, b));
+    expect(landPrice(1, b, 0.8)).toBe(landPrice(1, b) * 0.8);
+    // 後から足した場所なので、前からある場所の番号は変わらない
+    expect(city.pois.findIndex((p) => p.kind === 'land')).toBeGreaterThan(city.pois.findIndex((p) => p.kind === 'apart'));
+  });
+  it('買う → 駐車場にする → 月末に料金が入り、税がかかる。更地に戻して売ると、値上がりのぶんがもうけになる', () => {
+    const s = rich();
+    const price = landValue(s, land, b);
+    go(s, land, 'landBuy');
+    expect(landsOf(s)).toEqual([{ poi: land.id, paid: price, use: 'none' }]);
+    expect(s.cash).toBe(9000000 - price);
+    expect(poiTitle(s, city, land)).toBe('自分の土地');
+    go(s, land, 'landPark');
+    expect(landsOf(s)[0].use).toBe('parking');
+    const inc = landIncome(landsOf(s)[0], land.traffic, price, b);
+    expect(inc).toBeGreaterThan(0);
+    const evs = monthEnd(s);
+    const rec = (evs.find((e) => e.type === 'month') as { rec: { rent: number; notes: string[] } }).rec;
+    expect(rec.rent).toBe(Math.round(price * b.land.hold));
+    // 景気が良くなると、高く売れる
+    s.eco.cycle.phase = 0;
+    const up = landValue(s, land, b);
+    go(s, land, 'landStop');
+    const money = s.cash + s.bank;
+    const sales = s.eco.m.sales;
+    go(s, land, 'landSell');
+    const got = Math.round(up * (1 - b.land.fee));
+    expect(s.cash + s.bank).toBe(money + got);
+    expect(landsOf(s)).toEqual([]);
+    if (got >= price) expect(s.eco.m.sales).toBe(sales + got - price);
+  });
+  it('建てる：アパートは家賃が入り、自分の店は家賃も保証金もいらない。建てた土地は、その建物の場所として扱う', () => {
+    const s = rich();
+    go(s, land, 'landBuy');
+    go(s, land, 'landApart');
+    expect(s.firm.aparts).toEqual([{ poi: land.id, rent: 1, state: 1, paid: b.land.buildApart }]);
+    expect(kindOf(s, land)).toBe('apart');
+    expect(poiActions(s, city, land, b).map((a) => a.id)).toEqual(['rentUp', 'rentDown', 'repair']);
+    const other = city.pois.filter((p) => p.kind === 'land')[1];
+    go(s, other, 'landBuy');
+    go(s, other, 'landShop');
+    expect(kindOf(s, other)).toBe('lot');
+    expect(s.biz[0]).toMatchObject({ poi: other.id, type: 'shop', rent: 0, deposit: 0 });
+    expect(poiActions(s, city, other, b).some((a) => a.id === 'tend')).toBe(true);
+    go(s, other, 'closeShop');
+    expect(s.biz).toEqual([]);
+    expect(landsOf(s).find((l) => l.poi === other.id)!.use).toBe('none');
+  });
+  it('土地を担保にすると、決算がなくても値段の6割まで借りられる。返し終わるまで売れない', () => {
+    const s = rich();
+    s.eco.credit = 250;
+    go(s, land, 'landBuy');
+    const value = freeLand(s, city, b);
+    const offer = loanOffers(s.eco, 0, false, b, value).find((o) => o.kind === 'land')!;
+    expect(offer.ok).toBe(true);
+    expect(offer.max).toBe(Math.floor((value * b.land.ltv) / 10000) * 10000);
+    expect(offer.rate).toBeLessThan(loanOffers(s.eco, 0, false, b, value)[1].rate);
+    expect(loanOffers(s.eco, 0, false, b, 0).find((o) => o.kind === 'land')!.ok).toBe(false);
+    const bank = kind('bank');
+    s.x = bank.x;
+    s.y = bank.y;
+    const bal0 = s.bank;
+    apply(s, city, { type: 'loan', id: bank.id, kind: 'land', amount: offer.max }, b);
+    expect(s.bank).toBe(bal0 + offer.max);
+    expect(landsOf(s)[0].mort).toBe(s.eco.loans[0].id);
+    expect(poiActions(s, city, land, b).find((a) => a.id === 'landSell')!.ok).toBe(false);
+    expect(freeLand(s, city, b)).toBe(0);
+    // 返し終わると、担保が外れる
+    s.eco.loans = [];
+    monthEnd(s);
+    expect(landsOf(s)[0].mort).toBeUndefined();
   });
 });

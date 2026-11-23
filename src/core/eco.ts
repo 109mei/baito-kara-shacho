@@ -2,7 +2,7 @@
 // 仕様書の 2章（時間）・4章（お金）・5章（信用）を、いまの街の時間（1か月＝数日）に合わせて入れた物。
 import type { Balance } from '../data/schema';
 
-export interface Loan { id: number; kind: 'start' | 'bank'; amount: number; left: number; pay: number; rate: number; n: number; corp?: boolean } // n＝残りの回数。corp＝会社の借入（自分が保証人）
+export interface Loan { id: number; kind: 'start' | 'bank' | 'land'; amount: number; left: number; pay: number; rate: number; n: number; corp?: boolean } // n＝残りの回数。corp＝会社の借入（自分が保証人）
 export interface Bill { what: string; amount: number; corp?: boolean }
 // 法人にしたあとの会社：会社の口座と、自分へ毎月移す給料（役員報酬）
 export interface Corp { bank: number; salary: number }
@@ -123,10 +123,11 @@ export const monthlyPay = (amount: number, yearRate: number, months: number) => 
   return Math.round(r === 0 ? amount / months : (amount * r) / (1 - Math.pow(1 + r, -months)));
 };
 export interface Cond { label: string; ok: boolean }
-export interface Offer { kind: 'start' | 'bank'; label: string; ok: boolean; conds: Cond[]; max: number; rate: number; months: number }
+export interface Offer { kind: 'start' | 'bank' | 'land'; label: string; ok: boolean; conds: Cond[]; max: number; rate: number; months: number }
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`;
 // 借りられる融資の一覧。審査に運はなく、条件をすべて満たせば必ず通る
-export function loanOffers(e: Eco, own: number, expert: boolean, bal: Balance): Offer[] {
+// land＝担保に入れていない土地の、いまの値段の合計
+export function loanOffers(e: Eco, own: number, expert: boolean, bal: Balance, land = 0): Offer[] {
   const L = bal.loan;
   const ri = rankIndex(e.credit);
   const rate = loanRate(e.credit, bal);
@@ -152,10 +153,19 @@ export function loanOffers(e: Eco, own: number, expert: boolean, bal: Balance): 
   return [
     { kind: 'start', label: '創業の融資', conds: start, ok: start.every((c) => c.ok), max: startMax, rate, months: L.months },
     { kind: 'bank', label: '銀行の融資', conds: bank, ok: bank.every((c) => c.ok), max: bankMax, rate, months: L.bankMonths },
+    // 土地を担保にした融資：決算やもうけを問わない。土地の値段の6割まで。利率は2ポイント低い。返し終わるまで、その土地は売れない
+    (() => {
+      const max = Math.floor((land * bal.land.ltv) / 10000) * 10000;
+      const conds: Cond[] = [
+        { label: `信用のランクが D 以上（いま ${rankOf(e.credit)}）`, ok: ri >= 1 },
+        { label: `担保に入れていない土地がある（いまの値段 ${yen(land)}）`, ok: max >= 10000 },
+      ];
+      return { kind: 'land' as const, label: '土地を担保にした融資', conds, ok: conds.every((c) => c.ok), max, rate: Math.max(0.01, Math.round((rate - bal.land.loanCut) * 1000) / 1000), months: bal.land.loanMonths };
+    })(),
   ];
 }
-export function takeLoan(e: Eco, kind: 'start' | 'bank', amount: number, own: number, expert: boolean, bal: Balance): Loan | null {
-  const o = loanOffers(e, own, expert, bal).find((x) => x.kind === kind);
+export function takeLoan(e: Eco, kind: 'start' | 'bank' | 'land', amount: number, own: number, expert: boolean, bal: Balance, land = 0): Loan | null {
+  const o = loanOffers(e, own, expert, bal, land).find((x) => x.kind === kind);
   if (!o || !o.ok || amount < 10000 || amount > o.max) return null;
   const loan: Loan = { id: e.nextLoan++, kind, amount, left: amount, pay: monthlyPay(amount, o.rate, o.months), rate: o.rate, n: o.months };
   e.loans.push(loan);

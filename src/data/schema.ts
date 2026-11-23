@@ -18,6 +18,7 @@ export const BalanceSchema = z.object({
   time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23), daysPerMonth: pos.int(), monthsPerYear: pos.int(), quotaScale: pos.max(1), softFame: pos }),
   credit: rec(['start', 'run', 'black', 'paid', 'late', 'red3', 'goodYear', 'taxPaid', 'arrest', 'arrestCap', 'bankruptCap', 'capMonths', 'planGood', 'planBad', 'restartCash', 'bankrupt']),
   corp: rec(['fee', 'capital', 'salary', 'step', 'unit']),
+  land: rec(['price', 'hold', 'fee', 'parkSetup', 'parkLots', 'parkUnit', 'parkUpkeep', 'lease', 'buildApart', 'buildShop', 'ltv', 'loanCut', 'loanMonths']),
   soft: rec(['qBase', 'qKnow', 'fixHours', 'fixGain', 'promoHours', 'promoGain', 'promoMax', 'demoHours', 'demoAt', 'demoHype', 'updHours', 'updMax', 'saleBoost', 'fanRate', 'fanBuy', 'teamHours', 'oldPc']),
   pro: rec(['buildValue', 'buildCrew', 'buildMonths', 'buildFund', 'buildSkill', 'haulValue', 'haulCrew', 'haulMonths', 'trucks', 'truck', 'haulSkill', 'guardValue', 'guardCrew', 'guardMonths', 'guardFee', 'guardHours', 'big', 'bigJobs', 'bigRank']),
   loan: rec(['rateD', 'rateC', 'rateB', 'rateA', 'startRatio', 'startKnow', 'months', 'bankMonths', 'bankPayShare', 'deferFee']),
