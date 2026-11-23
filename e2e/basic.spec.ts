@@ -350,3 +350,42 @@ test('手作りの品：材料を買い、自宅の作業台で作り、売り�
   await expect.poll(async () => (await state(page)).cash).toBe(30000 - 2000 + 4 * 800);
 });
 
+test('屋台：窓口で講習を受け、空き店舗で屋台を出し、広告を出して店に立つ。「仕事と商売」に店が出る', async ({ page }) => {
+  test.setTimeout(120000);
+  await fresh(page);
+  await page.locator('[data-start="new"]').click();
+  await page.evaluate(() => {
+    window.__game!.give('money');
+    window.__game!.clock(10);
+  });
+  await goTo(page, 'office');
+  await enter(page);
+  await page.waitForTimeout(500);
+  await shot(page, '23-office');
+  await use(page, 0);
+  await page.locator('[data-act="lecture"]').click();
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
+  await page.evaluate(() => window.__game!.clock(34));
+  await goTo(page, 'lot');
+  await enter(page);
+  await use(page, 0);
+  await expect(page.locator('[data-act="shop"]')).toBeVisible();
+  await shot(page, '24-open-shop');
+  await page.locator('[data-act="stall"]').click();
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
+  await enter(page);
+  await use(page, 0);
+  await page.locator('[data-act="ad"]').click();
+  await page.locator('[data-act="ad"]').click();
+  await page.waitForTimeout(300);
+  await shot(page, '25-my-stall');
+  await page.locator('[data-act="tend"]').click();
+  await expect.poll(async () => (await state(page)).biz[0].m.cust).toBeGreaterThan(0);
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
+  await page.locator('[data-hubbtn]').click();
+  await expect(page.locator('[data-shop="stall"]')).toBeVisible();
+});
+

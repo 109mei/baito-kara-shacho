@@ -4,6 +4,7 @@ import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { loanOffers, monthlyPay, monthOf, rankOf } from '../core/eco';
+import { apartFill, apartIncome, seen as seenStat, type Staff } from '../core/shop';
 import { left, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
@@ -289,12 +290,21 @@ function Routes({ id }: { id: number }) {
   );
 }
 
+// 人の数字の見せ方：面接で聞いた項目だけ、幅で見える。1か月働くと、正しく見える
+function Stats({ p }: { p: Staff }) {
+  return <small>{(['技能', '接客', 'まじめさ'] as const).map((name, k) => {
+    const r = seenStat(p, k as 0 | 1 | 2);
+    return <span key={name}>{name} {r ? (r[0] === r[1] ? r[0] : `${r[0]}〜${r[1]}`) : '？'}　</span>;
+  })}</small>;
+}
+
 // 仕事と商売：届いた話、今月の枠、作品、知名度、入金の予定、自分の疲れと知識
 function Hub() {
   useGame((s) => s.hud);
   const set = useGame((s) => s.set);
   const gig = useGame((s) => s.gig);
   const wayTo = useGame((s) => s.wayTo);
+  const staff = useGame((s) => s.staff);
   const s = getCore();
   const tr = s.tr;
   const J = b.jobs;
@@ -317,6 +327,52 @@ function Hub() {
           <div key={g.id} className={`gig ${g.taken ? 'on' : ''}`} data-gig={g.id}>
             <span><b>{J[g.job].name}</b> +{yen(J[g.job].price - J[g.job].mat)}<small>{workMins(J[g.job], s.eco.know.handy ?? 0, tr, s.eco.fatigue)}分・ここから {dist(g.poi)}m・今月中</small></span>
             {g.taken ? <><button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button><button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
+          </div>
+        ))}
+        {s.biz.length > 0 && <h3>店</h3>}
+        {s.biz.map((z) => {
+          const crew = s.firm.staff.filter((q) => q.at === z.poi);
+          const boss = crew.find((q) => q.id === z.boss);
+          return (
+            <div key={z.poi} className="gig" data-shop={z.type}>
+              <span><b>{z.type === 'stall' ? '屋台' : '店'}</b>　認知 {Math.round(z.aware)}・評判 {Math.round(z.repute)}・値段 {Math.round(z.price * 100)}%
+                <small>きのう 客{z.d.cust}人{z.d.lost ? `（${z.d.lost}人は帰った）` : ''}・今月の売上 {yen(z.m.sales)}・人 {crew.length}人{boss ? `（店長 ${boss.name}）` : crew.length && z.seen < Math.floor(s.clock / 1440) ? '・きょうは見ていない' : ''}</small></span>
+              <button className="chip on" onClick={() => wayTo(z.poi)}>道案内</button>
+            </div>
+          );
+        })}
+        {s.firm.staff.length > 0 && <h3>人</h3>}
+        {s.firm.staff.map((q) => (
+          <div key={q.id} className="gig col" data-staff={q.id}>
+            <span><b>{q.name}</b>　日給 {yen(q.wage)}・{q.at < 0 ? 'まだ店を決めていない' : s.biz.find((z) => z.poi === q.at)?.type === 'stall' ? '屋台' : '店'}{s.biz.some((z) => z.boss === q.id) ? '（店長）' : ''}
+              <Stats p={q} />
+              <small>{q.mood >= b.staff.quit ? '「話があります」と言っている' : q.mood >= b.staff.sign ? '遅刻が増えた' : q.months === 0 ? '働き始めたばかり' : '変わりなし'}{q.see[0] >= 3 ? `・まとめる力 ${q.lead}` : ''}</small></span>
+            <div className="btns">
+              <button className="chip" data-s="assign" onClick={() => staff(q.id, 'assign')}>店を変える</button>
+              <button className="chip" data-s="boss" disabled={q.at < 0} onClick={() => staff(q.id, 'boss')}>{s.biz.some((z) => z.boss === q.id) ? '店長をやめる' : '店長に任せる'}</button>
+              <button className="chip" data-s="raise" onClick={() => staff(q.id, 'raise')}>昇給</button>
+              <button className="chip" data-s="talk" onClick={() => staff(q.id, 'talk')}>面談（1時間）</button>
+              <button className="chip" data-s="fire" onClick={() => staff(q.id, 'fire')}>やめてもらう</button>
+            </div>
+          </div>
+        ))}
+        {(s.firm.post || s.firm.pool.length > 0) && <h3>求人と応募</h3>}
+        {s.firm.post && <p className="line num">{s.firm.post.site ? '求人サイト' : '張り紙'}・日給 <b>{yen(s.firm.post.wage)}</b>（相場 {yen(b.staff.market)}）　<button className="chip" data-s="wageDown" onClick={() => staff(0, 'wageDown')}>下げる</button> <button className="chip" data-s="wageUp" onClick={() => staff(0, 'wageUp')}>上げる</button></p>}
+        {s.firm.post && s.firm.pool.length === 0 && <p className="hint">応募は、月の初めに届く</p>}
+        {s.firm.pool.map((q) => (
+          <div key={q.id} className="gig col" data-pool={q.id}>
+            <span><b>{q.name}</b>　{q.bio}・希望の日給 {yen(q.ask)}<Stats p={q} /><small>面接の質問 あと{3 - (s.firm.asked[q.id] ?? 0)}つ（1つ20分）</small></span>
+            <div className="btns">
+              {(['技能', '接客', 'まじめさ'] as const).map((name, k) => <button key={name} className="chip" data-ask={k} disabled={(s.firm.asked[q.id] ?? 0) >= 3 || q.see[k] >= 2} onClick={() => staff(q.id, 'ask', k as 0 | 1 | 2)}>{name}を聞く</button>)}
+              <button className="chip on" data-hire onClick={() => staff(q.id, 'hire')}>雇う</button>
+            </div>
+          </div>
+        ))}
+        {s.firm.aparts.length > 0 && <h3>物件</h3>}
+        {s.firm.aparts.map((a) => (
+          <div key={a.poi} className="gig" data-apart>
+            <span><b>アパート</b>　{Math.round(apartFill(a, city.pois[a.poi].traffic) * b.apart.rooms)}/{b.apart.rooms}室・月 {yen(apartIncome(a, city.pois[a.poi].traffic, b))}<small>家賃 相場の{Math.round(a.rent * 100)}%・建物の状態 {Math.round(a.state * 100)}%</small></span>
+            <button className="chip on" onClick={() => wayTo(a.poi)}>道案内</button>
           </div>
         ))}
         <h3>手作りの品</h3>

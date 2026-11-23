@@ -52,6 +52,7 @@ interface Store {
   loan: number | null; // 融資の相談をしている銀行
   hub: boolean; // 「仕事と商売」の札
   gig: (id: number, take: boolean) => void;
+  staff: (id: number, act: Extract<Cmd, { type: 'staff' }>['act'], k?: 0 | 1 | 2) => void;
   wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
   fire: () => void;
@@ -90,6 +91,7 @@ function goalOf(s: GameState): [string, PoiKind] {
   if (s.biz.length === 0 && s.cash < b.money.bike && !hasRide) return ['はたらいて お金をつくる', 'conbini'];
   if (!hasRide) return ['自転車を買う', 'bike'];
   if (s.biz.length === 0 && s.cash < b.biz.stall && s.dirty >= 50000) return ['質屋で お金を洗う', 'pawn'];
+  if (s.biz.length === 0 && !s.firm.permits.includes('food') && s.cash >= b.biz.stall) return ['窓口で 食品衛生の講習', 'office'];
   if (s.biz.length === 0) return [`屋台を出す ¥${b.biz.stall.toLocaleString('ja-JP')}`, s.cash >= b.biz.stall ? 'lot' : 'conbini'];
   if (s.biz.length < 3) return [`社長まで 事業 ${s.biz.length}/3`, 'lot'];
   if (s.biz.length < 6) return [`大社長まで 事業 ${s.biz.length}/6`, 'lot'];
@@ -256,6 +258,7 @@ export const useGame = create<Store>((set, get) => {
     loan: null,
     hub: false,
     gig: (id, take) => get().send({ type: 'gig', id, take }),
+    staff: (id, act, k) => get().send({ type: 'staff', id, act, k }),
     wayTo: (poi) => {
       const p = city.pois[poi];
       get().send({ type: 'way', x: p.x, y: p.y });

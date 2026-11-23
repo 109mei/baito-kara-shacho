@@ -137,8 +137,6 @@ describe('お金の決まり（街の中で）', () => {
   it('払えない月が2回続くと倒産：事業と乗り物と借入を失い、現金10万円でアルバイトからやり直す', () => {
     const s = createGame(7, city, b);
     s.cash = 0;
-    s.biz = [{ poi: city.pois.find((p) => p.kind === 'lot')!.id, type: 'stall', level: 1 }];
-    s.biz = [];
     s.eco.know.retail = 55;
     let broke = false;
     for (let d = 0; d < dpm * 2; d++) {

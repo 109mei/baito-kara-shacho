@@ -112,24 +112,6 @@ describe('ルール', () => {
     expect(s.record).toBe(1);
     expect(city.pois.some((p) => p.kind === 'police' && Math.hypot(p.x - s.x, p.y - s.y) < 10)).toBe(true);
   });
-  it('事業は、きれいなお金でだけ始められ、1日の終わりに利益が入り、汚れたお金がきれいになる', () => {
-    const s = createGame(7, city, b);
-    const lot = city.pois.find((p) => p.kind === 'lot')!;
-    s.x = lot.x;
-    s.y = lot.y;
-    s.dirty = 500000;
-    s.cash = 1000;
-    expect(poiActions(s, city, lot, b).find((a) => a.id === 'stall')!.ok).toBe(false);
-    s.cash = b.biz.stall;
-    apply(s, city, { type: 'poi', id: lot.id, act: 'stall' }, b);
-    expect(s.biz.length).toBe(1);
-    const bank = s.bank;
-    s.x = city.home.x;
-    s.y = city.home.y;
-    apply(s, city, { type: 'poi', id: city.home.id, act: 'sleep' }, b);
-    expect(s.bank).toBeGreaterThan(bank);
-    expect(s.dirty).toBeLessThan(500000);
-  });
   it('保存して読み込んでも、中身が変わらない', () => {
     const s = createGame(7, city, b);
     run(s, 200, 0.5, 1);

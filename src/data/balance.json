@@ -43,7 +43,7 @@
   "biz": {
     "stall": 120000,
     "stallProfit": 7000,
-    "shop": 600000,
+    "shop": 300000,
     "shopProfit": 30000,
     "upgradeFactor": 0.8,
     "levelProfit": 0.5,
@@ -339,5 +339,56 @@
     "nap": 10,
     "restPerHour": 4,
     "warn": 85
+  },
+  "shop": {
+    "stallUnit": 600,
+    "stallCost": 0.35,
+    "stallFlow": 700,
+    "stallCap": 14,
+    "shopUnit": 1500,
+    "shopCost": 0.45,
+    "shopFlow": 900,
+    "shopCap": 10,
+    "shopRent": 3000,
+    "depositMonths": 6,
+    "depositMonthsE": 10,
+    "selfCap": 12,
+    "hours": 10,
+    "ad": 20000,
+    "adGain": 15,
+    "awareStart": 5,
+    "awareDecay": 2,
+    "unseen": 0.7,
+    "happy": 0.02,
+    "unhappy": 0.06,
+    "mouth": 0.02,
+    "mix": 0.2
+  },
+  "staff": {
+    "market": 8800,
+    "seekers": 200,
+    "paper": 0.02,
+    "site": 0.1,
+    "siteFee": 20000,
+    "talk": 15,
+    "raise": 10,
+    "quit": 80,
+    "sign": 60,
+    "quiet": 5,
+    "skim": 0.05,
+    "skimRate": 0.1,
+    "expHours": 40
+  },
+  "apart": {
+    "price": 3000000,
+    "rooms": 6,
+    "unit": 9000,
+    "upkeep": 6000,
+    "decay": 0.05,
+    "repair": 0.2
+  },
+  "permit": {
+    "foodFee": 10000,
+    "foodHours": 8
   }
 }

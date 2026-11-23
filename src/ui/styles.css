@@ -224,3 +224,7 @@ button:disabled { cursor: default; }
 .bar i { display: block; height: 100%; background: var(--good); }
 .bar i.warm { background: var(--gold); }
 .bar i.hot { background: var(--bad); }
+
+.gig.col { flex-direction: column; align-items: stretch; }
+.gig .btns { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip:disabled { opacity: 0.4; }
