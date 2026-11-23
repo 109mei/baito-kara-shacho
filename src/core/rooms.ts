@@ -44,9 +44,9 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
     case 'car':
       return withExit({ w: 15, h: 10, floor: 'tile', f: [F('car', 1.2, 1.0, 2.2, 4.6), F('car', 4.8, 1.0, 2.2, 4.6), F('rug', 0.8, 0.7, 6.6, 5.2), F('desk', 10.8, 1.8, 2.6, 1.2), F('clerk', 11.7, 0.8, 0.8, 0.8), F('plant', 14.0, 8.9, 0.6, 0.6), F('sofa', 10.6, 6.4, 2.6, 1.0)], spots: [{ x: 12.1, y: 3.7, label: '中古車を買う', acts: ['buyCar'] }] });
     case 'tool':
-      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['crowbar', 'laptop'] }] });
+      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['crowbar', 'lockpick', 'laptop', 'drill'] }] });
     case 'pawn':
-      return withExit({ w: 9, h: 7, floor: 'carpet', f: [F('counter', 0.6, 1.7, 7.8, 0.9), F('clerk', 4.1, 0.7, 0.8, 0.8), F('safe', 0.7, 0.5, 1.0, 1.0), F('safe', 7.3, 0.5, 1.0, 1.0), F('goods', 0.6, 4.6, 0.8, 1.6), F('goods', 7.6, 4.6, 0.8, 1.6)], spots: [{ x: 4.5, y: 3.3, label: '裏の取引', acts: ['sell', 'gun'] }] });
+      return withExit({ w: 9, h: 7, floor: 'carpet', f: [F('counter', 0.6, 1.7, 7.8, 0.9), F('clerk', 4.1, 0.7, 0.8, 0.8), F('safe', 0.7, 0.5, 1.0, 1.0), F('safe', 7.3, 0.5, 1.0, 1.0), F('goods', 0.6, 4.6, 0.8, 1.6), F('goods', 7.6, 4.6, 0.8, 1.6)], spots: [{ x: 4.5, y: 3.3, label: '裏の取引', acts: ['sell', 'wash', 'gun'] }] });
     case 'jewel':
       // 宝石店：下が売り場、上が奥の部屋（金庫・机・防犯パネル）。奥の部屋へは扉か裏口から
       return withExit({
@@ -98,6 +98,16 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
     default:
       return null; // 解体屋と ATM は外で使う
   }
+}
+
+// 床に出す、その場所の短い名前
+const TAGS: Record<HeistAct, string> = { threat: '店員', key: '店員', till: 'レジ', panel: '防犯パネル', door: '扉', vault: '金庫', case: 'ショーケース', desk: '机', guard: '警備員' };
+const LOOT_TAGS: [string, string][] = [['引き出し', '引き出し'], ['テレビ', 'テレビ'], ['金庫', '金庫'], ['机', '机']];
+export function spotTag(sp: Spot): string {
+  if (sp.exit) return sp.label.startsWith('裏口') ? '裏口' : '出口';
+  if (sp.h) return sp.h === 'door' ? sp.label : TAGS[sp.h];
+  if (sp.loot) return LOOT_TAGS.find(([k]) => sp.label.includes(k))?.[1] ?? '物';
+  return sp.label.replace(/^ここ(で|を)/, '');
 }
 
 // 部屋の中で通れない所か（壁・家具・閉じた扉）。じゅうたんは通れる。open＝開けた扉の番号（省くと全部開いている扱い）

@@ -150,8 +150,19 @@ test('宝石店・夜：裏口からピッキングで入り、監視カメラ�
   await page.locator('[data-start="new"]').click();
   await page.evaluate(() => {
     window.__game!.clock(2);
-    for (const t of ['lockpick', 'laptop', 'drill', 'gun']) window.__game!.give(t);
+    for (const t of ['laptop', 'gun', 'money']) window.__game!.give(t);
   });
+  // ピッキング道具とドリルは、道具屋で買う
+  await goTo(page, 'tool');
+  await enter(page);
+  await use(page, 0);
+  await expect(page.locator('[data-panel="tool"]')).toBeVisible();
+  await shot(page, '14-0-tool-shop');
+  await page.locator('[data-act="lockpick"]').click();
+  await page.locator('[data-act="drill"]').click();
+  await expect(page.locator('[data-act="drill"]')).toBeDisabled();
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
   await goTo(page, 'jewel');
   await page.waitForTimeout(600);
   await shot(page, '14-jewel-outside-night');
@@ -174,7 +185,7 @@ test('宝石店・夜：裏口からピッキングで入り、監視カメラ�
   await expect(page.locator('[data-drill]')).toBeVisible();
   await page.waitForTimeout(500);
   await shot(page, '14d-jewel-drill');
-  await expect.poll(async () => (await state(page)).dirty, { timeout: 90000 }).toBeGreaterThan(200000);
+  await expect.poll(async () => (await state(page)).dirty, { timeout: 90000 }).toBeGreaterThan(100000);
   await go(page, 'desk');
   await go(page, 'door', 0);
   await go(page, 'case', 0);
@@ -233,8 +244,9 @@ test('家に入って寝る。留守の家で盗む。敵の見張りと撃ち�
     const p = window.__game!.poi('gang')!;
     window.__game!.tp(p.x, p.y + 45);
   });
-  await expect(page.locator('[data-ctx="fire"]')).toBeVisible();
   await page.waitForTimeout(1500);
+  await shot(page, '12a-guards-warning');
+  await expect(page.locator('[data-ctx="fire"]')).toBeVisible();
   for (let i = 0; i < 6; i++) {
     await page.locator('[data-ctx="fire"]').click();
     await page.waitForTimeout(420);

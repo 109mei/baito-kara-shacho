@@ -202,6 +202,7 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
     case 'pawn':
       return [
         { id: 'sell', label: '盗んだ物を売る', sub: s.loot > 0 ? `+${yen(s.loot * m.pawnRate)}（汚れたお金）` : '何も持っていない', ok: s.loot > 0, why: '何も持っていない', crime: true },
+        { id: 'wash', label: 'お金を洗う', sub: `汚れたお金 → きれいなお金（手数料${Math.round((1 - m.washRate) * 100)}%・1日 ${yen(m.washCap)}まで）`, ok: s.dirty > 0 && cd <= 0, why: s.dirty <= 0 ? '汚れたお金がない' : '今日はもう洗った', crime: true },
         { id: 'gun', label: '銃を買う', sub: s.gun ? '持っている' : `${yen(bal.gang.gunCost)}／店員や警備員を脅せる`, ok: !s.gun && s.cash + s.dirty >= bal.gang.gunCost, why: s.gun ? '持っている' : 'お金が足りない', crime: true },
       ];
     case 'hideout':
@@ -283,8 +284,9 @@ export function spotShown(s: GameState, room: Room, i: number): boolean {
   if (sp.loot) return !ins.taken.includes(i);
   if (sp.acts) return !room.heist || (ins.staff && !ins.held && !ins.crime);
   switch (sp.h) {
-    case 'threat': return s.gun && ins.staff && !ins.held;
-    case 'guard': return s.gun && !ins.guardDown;
+    // 銃がなくても場所は見せる（押すと「銃が要る」と分かる）
+    case 'threat': return ins.staff && !ins.held;
+    case 'guard': return !ins.guardDown;
     case 'till': return ins.held && ins.fresh && !ins.taken.includes(i);
     case 'key': return ins.held && !hasKey(s, ins.poi);
     case 'desk': return !ins.taken.includes(i) && !hasKey(s, ins.poi);
@@ -310,7 +312,7 @@ export function spotInfo(s: GameState, city: City, room: Room, i: number, bal: B
   const c = (label: string, ok = true, why = '', mini = false): SpotInfo => ({ label, ok, why, mini, tone: 'crime' });
   switch (sp.h) {
     case 'threat':
-    case 'guard': return c(sp.label, s.gun, '銃が要る');
+    case 'guard': return c(s.gun ? sp.label : sp.h === 'guard' ? '警備員（銃があれば脅せる）' : '店員（銃があれば脅せる）', s.gun, '銃が要る。質屋で買える');
     case 'panel': return c(s.laptop ? sp.label : '防犯パネル（ノートPCが要る）', s.laptop, 'ノートPCが要る。道具屋で買える', true);
     case 'door': {
       const how = lockHow(s, ins.poi);
@@ -572,13 +574,13 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       case 'threat':
         ins.held = ins.crime = ins.did = true;
         s.crimes += 1;
-        toast('「動くな」　店員は手を上げた', 'bad');
+        toast('「動くな」　店員は手を上げた');
         ev.push({ type: 'sfx', name: 'door' });
         if (pr.silent > 0) trip(pr.silent, '店員が足元の通報ボタンを押した');
         break;
       case 'guard':
         ins.guardDown = ins.crime = ins.did = true;
-        toast('警備員は手を上げた', 'bad');
+        toast('警備員は手を上げた');
         ev.push({ type: 'sfx', name: 'door' });
         break;
       case 'till': {
@@ -773,6 +775,16 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       s.dirty += got;
       s.loot = 0;
       toast(`+${yen(got)}（汚れたお金）`, 'good');
+      ev.push({ type: 'sfx', name: 'coin' });
+      break;
+    }
+    case 'wash': {
+      const amount = Math.min(s.dirty, m.washCap);
+      const got = Math.round(amount * m.washRate);
+      s.dirty -= amount;
+      s.cash += got;
+      s.cool[p.id] = dayOf(s) + 1;
+      toast(`${yen(amount)} を洗って +${yen(got)}`, 'good');
       ev.push({ type: 'sfx', name: 'coin' });
       break;
     }

@@ -13,7 +13,7 @@ export const BalanceSchema = z.object({
   world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
   move: z.object({ walk: pos, bike: pos, car: pos, accel: pos, brake: pos, drag: pos, offroad: pos.max(1) }),
   time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23) }),
-  money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill']),
+  money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill', 'washRate', 'washCap']),
   biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
   police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),

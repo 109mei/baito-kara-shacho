@@ -208,7 +208,7 @@ function BigMap() {
         </div>
         <canvas ref={ref} width={1024} height={1024} onPointerDown={tap} data-mapcanvas />
         <div className="legend">
-          {LEGEND.map((k) => <span key={k}><i style={{ background: hex(PIN[k].c) }} />{LEGEND_NAME[k]}</span>)}
+          {LEGEND.map((k) => <span key={k}><i style={{ background: hex(PIN[k].c) }}>{PIN[k].t}</i>{LEGEND_NAME[k]}</span>)}
           <span><i className="me-dot" />自分</span>
         </div>
         {tools.length > 0 && <div className="tools" data-tools><b>持ち物</b>{tools.map((t) => <span key={t}>{t}</span>)}</div>}
@@ -429,6 +429,7 @@ function Game() {
       <div key={fade} className={fade ? 'flash' : ''} />
 
       <header className="hud">
+        <div className="hud-left">
         <div className="plate">
           <span className="date num">{hud.day}日目 <b>{clockText(hud.hour)}</b>　{hud.rank}</span>
           <span className="cash num" data-cash data-value={hud.cash}>{yen(hud.cash)}</span>
@@ -441,6 +442,8 @@ function Game() {
           </span>
           {(hud.gun || hud.hp < 100) && <span className={`hp ${hud.hp < 35 ? 'low' : ''}`} data-hp={hud.hp}><Icon name="heart" size={15} /><span><i style={{ width: `${Math.min(100, hud.hp)}%` }} /></span></span>}
         </div>
+        {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={17} /><span>{hud.goal}</span></button>}
+        </div>
         <div className="hud-right">
           {hud.inside ? <span className="where" data-inside>{hud.inside}</span> : <Minimap />}
           {hud.inside && hud.zone && hud.alarm < 0 && <span className="zone-chip" data-zone>立入禁止</span>}
@@ -451,7 +454,6 @@ function Game() {
       </header>
 
       {hud.mates > 0 && !hud.inside && <span className="mates" data-mates={hud.mates}>いっしょに {hud.mates}人</span>}
-      {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={15} /><span>{hud.goal}</span></button>}
       {!moved && <div className="howto" data-howto>画面に指を置いて、動かす</div>}
 
       <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>)}</div>
@@ -465,7 +467,7 @@ function Game() {
         {!hud.inside && hud.nearPoi !== null && (
           <button className="ctx poi" data-ctx="poi" onClick={openPoi}><Icon name="door" size={22} /><span>{hud.nearName}</span></button>
         )}
-        {!hud.inside && hud.gun && (
+        {!hud.inside && hud.aim && (
           <button className="ctx fire" data-ctx="fire" onPointerDown={(e) => { e.stopPropagation(); input.fire = true; fire(); }} onPointerUp={() => { input.fire = false; }} onPointerLeave={() => { input.fire = false; }} onPointerCancel={() => { input.fire = false; }}><Icon name="aim" size={24} /><span>撃つ</span></button>
         )}
         {!hud.inside && (riding || hud.nearCar) && (
@@ -492,6 +494,7 @@ function Game() {
         <div className="veil center" data-busted>
           <div className="busted">
             <h2>逮捕</h2>
+            <small className="why">パトカーのそばで止まったところを、取り押さえられた</small>
             <p className="num">罰金 {yen(busted.fine)}<br />没収 {yen(busted.lost)}<br />{busted.hours}時間、出られなかった</p>
             <button className="btn primary" data-ok onClick={() => set({ busted: null })}>警察署を出る</button>
           </div>

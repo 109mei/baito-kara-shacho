@@ -4,7 +4,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { GANGS, nodeXY, seg, turfOf, type Block, type City, type District, type PoiKind } from '../core/city';
-import { camAngle, CAM_FOV, CAM_NEAR, rayLen, type Furn, type Room } from '../core/rooms';
+import { camAngle, CAM_FOV, CAM_NEAR, rayLen, spotTag, type Furn, type Room } from '../core/rooms';
 import { hourOf, nearSpot, riding, roomFor, spotInfo, spotShown, stars, type Car, type GameState } from '../core/sim';
 import type { Balance } from '../data/schema';
 import { mateColor, net } from '../net/room';
@@ -73,6 +73,9 @@ export class MapView {
   private person = new Graphics();
   private roomKey = '';
   private roomCx = 0; // 部屋の中で、画面のまん中に置く x
+  private tagTex = new Map<string, Texture>(); // 部屋の中の、場所の名前
+  private tagPool: Sprite[] = [];
+  private tagLayer = new Container();
   private zoom = 1.7;
   private labels: Sprite[] = [];
   private poiRoof = new Map<number, Map<number, number>>(); // 場所の建物（区画の番号 → 建物の番号 → 印の色）
@@ -154,7 +157,7 @@ export class MapView {
     this.me.addChild(new Graphics().circle(0.5, 0.6, 2.6).fill({ color: SHADE, alpha: 0.25 }).circle(0, 0, 2.5).fill({ color: 0xffffff, alpha: 0.95 }).circle(0, 0, 1.6).fill(0x1b2330).poly([2.2, 0, 0.6, -1.1, 0.6, 1.1]).fill(0xffc94a));
     this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.fightG, this.me, this.pins);
     this.person.ellipse(0.06, 0.08, 0.44, 0.34).fill({ color: SHADE, alpha: 0.25 }).ellipse(0, 0, 0.26, 0.42).fill(0x2b3547).circle(0.04, 0, 0.21).fill(0xf6d2b0).ellipse(-0.05, 0, 0.17, 0.2).fill(0x3a2d24).poly([0.62, 0, 0.44, -0.12, 0.44, 0.12]).fill(0xffc94a);
-    this.roomLayer.addChild(this.roomG, this.fxG, this.spotG, this.person);
+    this.roomLayer.addChild(this.roomG, this.fxG, this.spotG, this.person, this.tagLayer);
     this.roomLayer.visible = false;
     this.app.stage.addChild(this.world, this.night, this.glowWorld, this.roomLayer);
     this.glowWorld.addChild(this.glows);
@@ -216,6 +219,28 @@ export class MapView {
     x.textBaseline = 'middle';
     x.fillText(text, 36, 38);
     return Texture.from(c);
+  }
+
+  // 部屋の中の場所の名前（白いふちの濃い字）
+  private makeTag(text: string): Texture {
+    const hit = this.tagTex.get(text);
+    if (hit) return hit;
+    const c = document.createElement('canvas');
+    c.width = 46 * text.length + 28;
+    c.height = 64;
+    const x = c.getContext('2d')!;
+    x.font = '900 42px -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.lineJoin = 'round';
+    x.lineWidth = 9;
+    x.strokeStyle = 'rgba(255,255,255,0.95)';
+    x.strokeText(text, c.width / 2, 34);
+    x.fillStyle = '#1b2330';
+    x.fillText(text, c.width / 2, 34);
+    const t = Texture.from(c);
+    this.tagTex.set(text, t);
+    return t;
   }
 
   private makeLabel(text: string): Texture {
@@ -542,7 +567,9 @@ export class MapView {
         R(w * 0.34, 0.5, w * 0.32, 0.26, 0xd9dee4, 0.03);
         break;
       case 'plant':
-        g.circle(x + w / 2, y + h / 2, w * 0.5).fill(0x9a6b3f).circle(x + w / 2, y + h / 2, w * 0.62).fill({ color: 0x5fae5f, alpha: 0.95 }).circle(x + w * 0.4, y + h * 0.4, w * 0.3).fill(0x8fd08a);
+        // 鉢と、葉のかたまり（丸い印と見分けがつくように、四角い鉢に葉を散らす）
+        g.roundRect(x + w * 0.12, y + h * 0.12, w * 0.76, h * 0.76, 0.08).fill(0x9a6b3f).roundRect(x + w * 0.2, y + h * 0.2, w * 0.6, h * 0.6, 0.06).fill(0x6b4a2a);
+        for (const [lx, ly, lr, lc] of [[0.3, 0.32, 0.3, 0x4f9a52], [0.72, 0.4, 0.27, 0x62b062], [0.46, 0.72, 0.29, 0x57a657], [0.52, 0.42, 0.2, 0x93d48d]] as const) g.ellipse(x + w * lx, y + h * ly, w * lr * 1.25, w * lr * 0.8).fill(lc);
         break;
       case 'vault':
         R(0, 0, w, h, 0x7d8896, 0.1);
@@ -657,7 +684,7 @@ export class MapView {
       }
       // 部屋ぜんぶが入る大きさ。ただし人が小さくなりすぎる広い部屋は、寄って自分を追う
       const fit = Math.min((W - 28) / (room.w + 1), (H * 0.58) / (room.h + 1.4));
-      const zr = Math.max(fit, Math.min(34, (H * 0.58) / (room.h + 1.4)));
+      const zr = Math.max(fit, Math.min(40, (H * 0.6) / (room.h + 1.4)));
       const viewW = W / zr;
       const wantCx = room.w + 1.2 > viewW ? Math.max(viewW / 2 - 0.7, Math.min(room.w - viewW / 2 + 0.7, s.inside.x)) : room.w / 2;
       this.roomCx = this.roomCx < 0 ? wantCx : this.roomCx + (wantCx - this.roomCx) * (1 - Math.exp(-dt * 7));
@@ -713,6 +740,7 @@ export class MapView {
       }
       const sg = this.spotG;
       sg.clear();
+      let tags = 0;
       room.spots.forEach((sp, i) => {
         if (!spotShown(s, room, i)) return;
         const info = spotInfo(s, c, room, i, this.bal);
@@ -722,7 +750,22 @@ export class MapView {
           const r = 0.72 + Math.sin(t * 4) * 0.05;
           sg.circle(sp.x, sp.y, r).fill({ color: col, alpha: 0.3 }).circle(sp.x, sp.y, r).stroke({ width: 0.1, color: col, alpha: 0.95 }).circle(sp.x, sp.y, 0.13).fill(col);
         } else sg.circle(sp.x, sp.y, 0.34).fill({ color: col, alpha: 0.16 }).circle(sp.x, sp.y, 0.34).stroke({ width: 0.06, color: col, alpha: 0.7 }).circle(sp.x, sp.y, 0.1).fill(col);
+        // 場所の名前
+        let tag = this.tagPool[tags];
+        if (!tag) {
+          tag = new Sprite();
+          tag.anchor.set(0.5, 1);
+          this.tagPool.push(tag);
+          this.tagLayer.addChild(tag);
+        }
+        tag.texture = this.makeTag(spotTag(sp));
+        tag.visible = true;
+        tag.scale.set(0.0092);
+        tag.position.set(sp.x, sp.y - (i === near ? 0.8 : 0.42));
+        tag.alpha = i === near ? 1 : 0.82;
+        tags++;
       });
+      for (let k = tags; k < this.tagPool.length; k++) this.tagPool[k].visible = false;
       this.person.position.set(s.inside.x, s.inside.y);
       this.person.rotation = s.inside.a;
       this.night.clear().rect(0, 0, W, H).fill(0x1b2330);
@@ -864,7 +907,7 @@ export class MapView {
     // 見張り（組織の色）と、弾の線
     const fg = this.fightG;
     fg.clear();
-    for (const t of s.thugs) if (s.hostile <= 0) fg.circle(t.hx, t.hy, this.bal.gang.warnDist).fill({ color: 0xff3b30, alpha: 0.055 });
+    for (const t of s.thugs) if (s.hostile <= 0) fg.circle(t.hx, t.hy, this.bal.gang.warnDist).fill({ color: 0xff3b30, alpha: 0.085 });
     for (const t of s.thugs) {
       const col = GANGS[t.gang].color;
       if (s.hostile > 0) fg.poly([t.x, t.y - 4.4, t.x - 1.1, t.y - 6.6, t.x + 1.1, t.y - 6.6]).fill(0xff3b30);
@@ -885,6 +928,13 @@ export class MapView {
       fg.circle(m.x + 0.7, m.y + 0.9, r).fill({ color: SHADE, alpha: 0.22 }).circle(m.x, m.y, r).fill(0xffffff).circle(m.x, m.y, r - 0.9).fill(col).poly([m.x + Math.cos(m.a) * (r + 2.2), m.y + Math.sin(m.a) * (r + 2.2), m.x + Math.cos(m.a + 2.5) * r, m.y + Math.sin(m.a + 2.5) * r, m.x + Math.cos(m.a - 2.5) * r, m.y + Math.sin(m.a - 2.5) * r]).fill(col);
       if (m.stars > 0) fg.circle(m.x, m.y - r - 2.4, 1.3).fill(0xffd23e);
       if (m.hp < 100) fg.rect(m.x - 4, m.y + r + 1.6, 8, 1.1).fill(0x1b2330).rect(m.x - 4, m.y + r + 1.6, (8 * m.hp) / 100, 1.1).fill(0x3ddc84);
+    }
+
+    // 捕まるまでの度合い：自分のまわりの赤い輪が一周すると逮捕（止まらずに離れれば消える）
+    if (s.catchT > 0) {
+      const cr = car ? 9 : 6;
+      fg.circle(s.x, s.y, cr).stroke({ width: 1.1, color: 0x1b2330, alpha: 0.35 });
+      fg.moveTo(s.x, s.y - cr).arc(s.x, s.y, cr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, s.catchT / this.bal.police.catchTime)).stroke({ width: 1.4, color: 0xff3b30, cap: 'round' });
     }
 
     // 自分

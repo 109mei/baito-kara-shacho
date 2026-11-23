@@ -358,7 +358,8 @@ describe('強盗', () => {
         expect(s.inside!.camsOff).toBe(true);
         walk(s, [[6, 7.6], [9.2, 4.2]]);
       } else walk(s, [[9.2, 4.2]]);
-      expect(spotShown(s, roomFor(s, city)!, spotOf(s, 'threat'))).toBe(gun);
+      expect(spotShown(s, roomFor(s, city)!, spotOf(s, 'threat'))).toBe(true); // 銃がなくても場所は見える
+      expect(spotInfo(s, city, roomFor(s, city)!, spotOf(s, 'threat'), b).ok).toBe(gun); // 押せるのは銃があるときだけ
       heist(s, 'threat');
       run(s, 60);
       heist(s, 'till');
@@ -604,5 +605,29 @@ describe('縄張りの勢力図', () => {
     apply(s, city, { type: 'poi', id: city.home.id, act: 'nap' }, b);
     expect(Math.floor((s.clock % 1440) / 60)).toBe(22);
     expect(poiActions(s, city, city.home, b).find((a) => a.id === 'nap')!.ok).toBe(false);
+  });
+  it('道具屋では、強盗に要る道具が全部買える。質屋では、汚れたお金を手数料つきで洗える', () => {
+    const s = createGame(7, city, b);
+    const tool = city.pois.find((p) => p.kind === 'tool')!;
+    s.x = tool.x;
+    s.y = tool.y;
+    s.dirty = 1000000;
+    apply(s, city, { type: 'enter', id: tool.id }, b);
+    const acts = roomFor(s, city)!.spots[0].acts!;
+    expect(acts).toEqual(['crowbar', 'lockpick', 'laptop', 'drill']);
+    expect(acts.every((a) => poiActions(s, city, tool, b).some((x) => x.id === a))).toBe(true);
+    for (const a of acts) apply(s, city, { type: 'poi', id: tool.id, act: a }, b);
+    expect([s.crowbar, s.lockpick, s.laptop, s.drill]).toEqual([true, true, true, true]);
+    apply(s, city, { type: 'leave' }, b);
+    const pawn = city.pois.find((p) => p.kind === 'pawn')!;
+    s.x = pawn.x;
+    s.y = pawn.y;
+    expect(roomOf('pawn', false)!.spots[0].acts).toContain('wash');
+    const [dirty, cash] = [s.dirty, s.cash];
+    apply(s, city, { type: 'poi', id: pawn.id, act: 'wash' }, b);
+    expect(s.dirty).toBe(dirty - b.money.washCap);
+    expect(s.cash).toBe(cash + b.money.washCap * b.money.washRate);
+    apply(s, city, { type: 'poi', id: pawn.id, act: 'wash' }, b); // 同じ店では 1日 1回
+    expect(s.dirty).toBe(dirty - b.money.washCap);
   });
 });

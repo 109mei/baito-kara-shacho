@@ -27,6 +27,8 @@ export interface Hud {
   tools: string[]; // 持っている道具
   zone: boolean; // 立入禁止の所にいる
   mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
+  aim: boolean; // 撃てる相手が、届く所にいる
+  caught: number; // 捕まるまでの度合い（0〜1）
 }
 export interface Toast { id: number; text: string; tone: string }
 interface Store {
@@ -76,6 +78,7 @@ function goalOf(s: GameState): [string, PoiKind] {
   const hasRide = s.cars.some((c) => c.kind === 'mine');
   if (s.biz.length === 0 && s.cash < b.money.bike && !hasRide) return ['はたらいて お金をつくる', 'conbini'];
   if (!hasRide) return ['自転車を買う', 'bike'];
+  if (s.biz.length === 0 && s.cash < b.biz.stall && s.dirty >= 50000) return ['質屋で お金を洗う', 'pawn'];
   if (s.biz.length === 0) return [`屋台を出す ¥${b.biz.stall.toLocaleString('ja-JP')}`, s.cash >= b.biz.stall ? 'lot' : 'conbini'];
   if (s.biz.length < 3) return [`社長まで 事業 ${s.biz.length}/3`, 'lot'];
   if (s.biz.length < 6) return [`大社長まで 事業 ${s.biz.length}/6`, 'lot'];
@@ -109,6 +112,8 @@ function snapshot(): Hud {
     goal: goalOf(s)[0], goalKind: goalOf(s)[1],
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
     mates: net.online ? net.mates.size : -1,
+    aim: s.gun && !s.inside && (s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < b.gang.gunRange) || (net.online && !!net.nearest(s.x, s.y, b.gang.gunRange))),
+    caught: Math.min(1, s.catchT / b.police.catchTime),
     tools: [s.crowbar && 'バール', s.lockpick && 'ピッキング道具', s.laptop && 'ノートPC', s.drill && 'ドリル', s.gun && '銃', s.keys.length > 0 && `鍵 ${s.keys.length}本`].filter((x): x is string => !!x),
     ...insideHud(s),
   };
