@@ -100,6 +100,19 @@ export const sfx = {
   tick() {
     tone(880, 0.025, { type: 'triangle', vol: 0.05 });
   },
+  // 警報（通報までの秒読み）
+  alarm() {
+    tone(1175, 0.09, { type: 'square', vol: 0.045 });
+  },
+  // ドリルで削る音
+  drill() {
+    noise(0.16, 1400, 900, 0.07);
+  },
+  // 銃の音
+  shot() {
+    noise(0.09, 2600, 500, 0.22);
+    tone(180, 0.08, { type: 'square', vol: 0.08, to: 70 });
+  },
   // ぶつかった音
   crash() {
     noise(0.16, 900, 180, 0.2);

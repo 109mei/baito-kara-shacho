@@ -3,15 +3,17 @@
 // 広い街は 800m 四方の「ます」に分け、見えている所だけ作って描く。
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { nodeXY, seg, type Block, type City, type District, type PoiKind } from '../core/city';
-import { hourOf, riding, stars, type Car, type GameState } from '../core/sim';
+import { GANGS, nodeXY, seg, turfOf, type Block, type City, type District, type PoiKind } from '../core/city';
+import { camAngle, CAM_FOV, CAM_NEAR, rayLen, type Furn, type Room } from '../core/rooms';
+import { hourOf, nearSpot, riding, roomFor, spotInfo, spotShown, stars, type Car, type GameState } from '../core/sim';
 import type { Balance } from '../data/schema';
 
 export const LAND = 0xf2efe9;
 export const WATER = 0xa9d3e6;
 export const BLOCK: Record<District, number> = { downtown: 0xe9dcea, commercial: 0xf6dcd6, residential: 0xe7e2d8, industrial: 0xdfe1ec, park: 0xcdebc0, water: WATER };
 export const ROAD = { minor: 0xffffff, minorEdge: 0xcbc5b8, major: 0xf9c97c, majorEdge: 0xd9993c };
-export const PIN: Record<PoiKind | 'biz', { c: number; t: string }> = {
+export const PIN: Record<PoiKind | 'biz' | 'myhide' | 'myturf', { c: number; t: string }> = {
+  jewel: { c: 0x0f9aa8, t: '宝' }, gang: { c: 0x8f1d2c, t: '敵' }, hideout: { c: 0x4b5563, t: '隠' }, myhide: { c: 0xe0a100, t: 'ア' }, myturf: { c: 0xe0a100, t: '縄' },
   home: { c: 0x1b2330, t: '家' }, conbini: { c: 0x5b6b7a, t: '働' }, warehouse: { c: 0x5b6b7a, t: '働' },
   bike: { c: 0x2f7fc1, t: '輪' }, car: { c: 0x2f7fc1, t: '車' }, tool: { c: 0x2f7fc1, t: '具' },
   pawn: { c: 0x7b3fa0, t: '質' }, chop: { c: 0x7b3fa0, t: '解' }, atm: { c: 0x7b3fa0, t: 'A' }, house: { c: 0x7b3fa0, t: '留' },
@@ -52,7 +54,8 @@ export class MapView {
   private routeG = new Graphics();
   private pins = new Container();
   private pinSprites: Sprite[] = [];
-  private pinTex = {} as Record<PoiKind | 'biz', Texture>;
+  private pinTex = {} as Record<keyof typeof PIN, Texture>;
+  private fightG = new Graphics(); // 見張りと、弾の線
   private pedG = new Graphics();
   private carLayer = new Container();
   private carViews = new Map<number, { box: Container; light: Graphics | null; ring: Graphics }>();
@@ -62,6 +65,13 @@ export class MapView {
   private glowTex!: Texture;
   private glowPool: Sprite[] = [];
   private night = new Graphics();
+  private roomLayer = new Container(); // 建物の中
+  private roomG = new Graphics();
+  private spotG = new Graphics();
+  private fxG = new Graphics(); // 部屋の中の動く物：扉・店員・カメラの視界
+  private person = new Graphics();
+  private roomKey = '';
+  private roomCx = 0; // 部屋の中で、画面のまん中に置く x
   private zoom = 1.7;
   private labels: Sprite[] = [];
   private poiRoof = new Map<number, Map<number, number>>(); // 場所の建物（区画の番号 → 建物の番号 → 印の色）
@@ -93,7 +103,7 @@ export class MapView {
     cv.style.display = 'block';
     el.appendChild(cv);
     this.glowTex = this.makeGlow();
-    for (const k of Object.keys(PIN) as (PoiKind | 'biz')[]) this.pinTex[k] = this.makePin(PIN[k].c, PIN[k].t);
+    for (const k of Object.keys(PIN) as (keyof typeof PIN)[]) this.pinTex[k] = this.makePin(PIN[k].c, PIN[k].t);
     // 場所にいちばん近い建物を、その場所の建物にする（屋根のふちとひさしを、印と同じ色にする）
     const NXb = this.city.xs.length - 1;
     for (const p of this.city.pois) {
@@ -141,8 +151,11 @@ export class MapView {
       this.labels.push(sp);
     }
     this.me.addChild(new Graphics().circle(0.5, 0.6, 2.6).fill({ color: SHADE, alpha: 0.25 }).circle(0, 0, 2.5).fill({ color: 0xffffff, alpha: 0.95 }).circle(0, 0, 1.6).fill(0x1b2330).poly([2.2, 0, 0.6, -1.1, 0.6, 1.1]).fill(0xffc94a));
-    this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.me, this.pins);
-    this.app.stage.addChild(this.world, this.night, this.glowWorld);
+    this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.fightG, this.me, this.pins);
+    this.person.ellipse(0.06, 0.08, 0.44, 0.34).fill({ color: SHADE, alpha: 0.25 }).ellipse(0, 0, 0.26, 0.42).fill(0x2b3547).circle(0.04, 0, 0.21).fill(0xf6d2b0).ellipse(-0.05, 0, 0.17, 0.2).fill(0x3a2d24).poly([0.62, 0, 0.44, -0.12, 0.44, 0.12]).fill(0xffc94a);
+    this.roomLayer.addChild(this.roomG, this.fxG, this.spotG, this.person);
+    this.roomLayer.visible = false;
+    this.app.stage.addChild(this.world, this.night, this.glowWorld, this.roomLayer);
     this.glowWorld.addChild(this.glows);
     const s = this.get();
     this.camX = s.x;
@@ -445,6 +458,145 @@ export class MapView {
     return g;
   }
 
+  // ---- 建物の中：床・壁・家具を、上から見た形で描く
+  private buildRoom(room: Room) {
+    const g = this.roomG;
+    g.clear();
+    const { w, h } = room;
+    g.rect(-0.55, -0.9, w + 1.1, h + 1.45).fill(0x2f3846).rect(-0.55, -0.9, w + 1.1, 0.9).fill(0x56627a).rect(-0.35, -0.7, w + 0.7, 0.5).fill(0x6b7890);
+    const base = { wood: 0xdcbf94, tile: 0xeaeff3, concrete: 0xcdd1d6, carpet: 0xd9cfe0 }[room.floor];
+    g.rect(0, 0, w, h).fill(base);
+    if (room.floor === 'wood') for (let y = 0.55; y < h; y += 0.55) g.rect(0, y, w, 0.04).fill({ color: 0x9a7a52, alpha: 0.45 });
+    else if (room.floor === 'tile') {
+      for (let y = 1; y < h; y += 1) g.rect(0, y, w, 0.04).fill(0xd2dbe3);
+      for (let x = 1; x < w; x += 1) g.rect(x, 0, 0.04, h).fill(0xd2dbe3);
+    } else if (room.floor === 'concrete') for (let k = 0; k < 60; k++) g.rect(hsh(k, 1, 2) * w, hsh(k, 3, 4) * h, 0.12, 0.06).fill({ color: 0x8a9099, alpha: 0.4 });
+    else g.rect(0.25, 0.25, w - 0.5, h - 0.5).stroke({ width: 0.08, color: 0xb7a8c4 });
+    g.rect(0, 0, w, 0.4).fill({ color: SHADE, alpha: 0.14 }).rect(0, 0, 0.3, h).fill({ color: SHADE, alpha: 0.08 });
+    // 出入口と、玄関の敷物
+    g.rect(w / 2 - 0.9, h, 1.8, 0.55).fill(0xb9a17c).rect(w / 2 - 0.8, h - 0.75, 1.6, 0.55).fill(0x7a8a99);
+    if (room.back) g.rect(room.back.x - 0.8, -0.62, 1.6, 0.62).fill(0x8a6a45).rect(room.back.x - 0.68, -0.52, 1.36, 0.52).fill(0xa98558).circle(room.back.x + 0.45, -0.24, 0.09).fill(0xf2b632).rect(room.back.x - 0.7, 0.05, 1.4, 0.5).fill({ color: 0x7a8a99, alpha: 0.8 });
+    for (const f of room.f) if (f.t === 'rug') this.furn(g, f);
+    for (const f of room.f) if (f.t !== 'rug') g.rect(f.x + 0.14, f.y + 0.16, f.w, f.h).fill({ color: SHADE, alpha: 0.2 });
+    for (const f of room.f) if (f.t !== 'rug') this.furn(g, f);
+  }
+
+  private furn(g: Graphics, f: Furn) {
+    const { x, y, w, h } = f;
+    const R = (dx: number, dy: number, ww: number, hh: number, col: number, rad = 0.08) => g.roundRect(x + dx, y + dy, ww, hh, rad).fill(col);
+    const tints = [0xe2574c, 0xf2c14e, 0x4a94d2, 0x79b85a, 0xd9822b, 0x8f6bd1];
+    switch (f.t) {
+      case 'wall':
+        g.rect(x, y, w, h).fill(0x2f3846);
+        if (w > h) g.rect(x, y, w, 0.1).fill(0x56627a);
+        else g.rect(x, y, 0.1, h).fill(0x56627a);
+        break;
+      case 'case':
+        R(0, 0, w, h, 0x5f6f80, 0.1);
+        R(0.1, 0.1, w - 0.2, h - 0.2, 0xcfeaf5, 0.08);
+        for (let k = 0; k < 5; k++) g.circle(x + 0.38 + (k * (w - 0.76)) / 4, y + h / 2 + (k % 2 ? 0.12 : -0.1), 0.13).fill(tints[(k * 2 + Math.round(x)) % tints.length]).circle(x + 0.35 + (k * (w - 0.76)) / 4, y + h / 2 + (k % 2 ? 0.09 : -0.13), 0.045).fill(0xffffff);
+        g.rect(x + 0.14, y + 0.14, w - 0.28, 0.1).fill({ color: 0xffffff, alpha: 0.65 });
+        break;
+      case 'panel':
+        R(0, 0, w, h, 0x3d4654, 0.05);
+        R(0.06, 0.06, w - 0.12, h - 0.12, 0x8d99a8, 0.04);
+        break;
+      case 'rug':
+        R(0, 0, w, h, 0xc98b74, 0.15);
+        g.rect(x + 0.2, y + 0.2, w - 0.4, h - 0.4).stroke({ width: 0.07, color: 0xf3dcc6 });
+        break;
+      case 'counter':
+        R(0, 0, w, h, 0x7d5f42);
+        R(0.08, 0.08, w - 0.16, h - 0.3, 0xb9946a);
+        R(w * 0.62, 0.2, 0.5, 0.4, 0x2b3547, 0.04);
+        break;
+      case 'shelf':
+      case 'goods': {
+        R(0, 0, w, h, f.t === 'shelf' ? 0x8e9aa8 : 0xa98a66);
+        const n = Math.max(2, Math.round(Math.max(w, h) / 0.5));
+        for (let k = 0; k < n; k++) {
+          const col = tints[(k * 5 + Math.round(x * 3 + y)) % tints.length];
+          if (w >= h) g.roundRect(x + 0.1 + (k * (w - 0.2)) / n, y + 0.12, (w - 0.2) / n - 0.08, h - 0.24, 0.05).fill(col);
+          else g.roundRect(x + 0.12, y + 0.1 + (k * (h - 0.2)) / n, w - 0.24, (h - 0.2) / n - 0.08, 0.05).fill(col);
+        }
+        break;
+      }
+      case 'bed':
+        R(0, 0, w, h, 0x7d5f42, 0.12);
+        R(0.1, 0.1, w - 0.2, h - 0.2, 0xf5f2ea, 0.12);
+        R(0.1, h * 0.38, w - 0.2, h * 0.58, 0x5b8fd1, 0.12);
+        R(0.3, 0.22, w - 0.6, 0.55, 0xffffff, 0.14);
+        break;
+      case 'sofa':
+        R(0, 0, w, h, 0x5f6f98, 0.16);
+        R(0.12, 0.3, w - 0.24, h - 0.4, 0x7f8fb8, 0.12);
+        break;
+      case 'table':
+        R(0, 0, w, h, 0x9a7650, 0.16);
+        R(0.1, 0.1, w - 0.2, h - 0.2, 0xc19a6d, 0.12);
+        break;
+      case 'desk':
+        R(0, 0, w, h, 0x9a7650);
+        R(w * 0.3, 0.12, w * 0.4, 0.14, 0x1b2330, 0.03);
+        R(w * 0.34, 0.5, w * 0.32, 0.26, 0xd9dee4, 0.03);
+        break;
+      case 'plant':
+        g.circle(x + w / 2, y + h / 2, w * 0.5).fill(0x9a6b3f).circle(x + w / 2, y + h / 2, w * 0.62).fill({ color: 0x5fae5f, alpha: 0.95 }).circle(x + w * 0.4, y + h * 0.4, w * 0.3).fill(0x8fd08a);
+        break;
+      case 'vault':
+        R(0, 0, w, h, 0x7d8896, 0.1);
+        R(0.15, 0.15, w - 0.3, h - 0.3, 0xa7b2bf, 0.1);
+        g.circle(x + w / 2, y + h * 0.62, 0.7).fill(0x6c7786).circle(x + w / 2, y + h * 0.62, 0.7).stroke({ width: 0.1, color: 0x3d4654 }).circle(x + w / 2, y + h * 0.62, 0.16).fill(0xf2b632);
+        for (let k = 0; k < 4; k++) g.moveTo(x + w / 2, y + h * 0.62).lineTo(x + w / 2 + Math.cos(k * 1.57 + 0.4) * 0.55, y + h * 0.62 + Math.sin(k * 1.57 + 0.4) * 0.55).stroke({ width: 0.08, color: 0x3d4654 });
+        break;
+      case 'bike': {
+        const horiz = w > h;
+        const col = tints[Math.round(x * 2 + y) % tints.length];
+        if (horiz) g.rect(x + 0.2, y + h / 2 - 0.06, w - 0.4, 0.12).fill(col).circle(x + 0.3, y + h / 2, 0.3).stroke({ width: 0.09, color: 0x1b2330 }).circle(x + w - 0.3, y + h / 2, 0.3).stroke({ width: 0.09, color: 0x1b2330 });
+        else g.rect(x + w / 2 - 0.06, y + 0.2, 0.12, h - 0.4).fill(col).circle(x + w / 2, y + 0.3, 0.3).stroke({ width: 0.09, color: 0x1b2330 }).circle(x + w / 2, y + h - 0.3, 0.3).stroke({ width: 0.09, color: 0x1b2330 });
+        break;
+      }
+      case 'car': {
+        const col = tints[Math.round(x) % tints.length];
+        R(0, 0, w, h, col, 0.5);
+        R(0.2, h * 0.24, w - 0.4, h * 0.42, mix(col, SHADE, 0.3), 0.3);
+        R(0.24, h * 0.2, w - 0.48, 0.5, 0xcfe6f5, 0.1);
+        break;
+      }
+      case 'box':
+        R(0, 0, w, h, 0xb98a55);
+        for (let bx = 0; bx < w - 0.3; bx += 0.95) for (let by = 0; by < h - 0.3; by += 0.85) g.roundRect(x + bx + 0.06, y + by + 0.06, Math.min(0.85, w - bx - 0.12), Math.min(0.75, h - by - 0.12), 0.04).fill(0xd3aa74).rect(x + bx + 0.06, y + by + 0.38, Math.min(0.85, w - bx - 0.12), 0.07).fill(0xa87a48);
+        break;
+      case 'cell':
+        R(0, 0, w, h, 0x8c96a3, 0.04);
+        R(0.12, 0.12, w - 0.24, h - 0.24, 0xb9c2cc, 0.04);
+        for (let bx = 0.2; bx < w; bx += 0.3) g.rect(x + bx, y + h - 0.16, 0.08, 0.16).fill(0x3d4654);
+        break;
+      case 'tv':
+        R(0, 0, w, h, 0x1b2330, 0.06);
+        R(0.08, 0.08, w - 0.16, h - 0.16, 0x3b5a7d, 0.04);
+        break;
+      case 'safe':
+        R(0, 0, w, h, 0x4b5563, 0.08);
+        R(0.1, 0.1, w - 0.2, h - 0.2, 0x6b7786, 0.06);
+        g.circle(x + w / 2, y + h / 2, 0.2).fill(0xd9dee4).circle(x + w / 2, y + h / 2, 0.07).fill(0x1b2330);
+        break;
+      case 'drawer':
+        R(0, 0, w, h, 0x8a6746);
+        R(0.08, 0.08, w / 2 - 0.12, h - 0.16, 0xb08a60, 0.04);
+        R(w / 2 + 0.04, 0.08, w / 2 - 0.12, h - 0.16, 0xb08a60, 0.04);
+        break;
+      case 'fridge':
+        R(0, 0, w, h, 0xdfe6ec, 0.08);
+        if (w > 2) for (let k = 0; k < Math.round(w / 0.9); k++) g.roundRect(x + 0.08 + k * 0.9, y + 0.08, 0.78, h - 0.16, 0.04).fill(k % 2 ? 0xbfe0ee : 0xa9d3e6);
+        else R(0.1, 0.1, w - 0.2, h - 0.2, 0xf4f7f9, 0.06);
+        break;
+      case 'clerk':
+        g.ellipse(x + w / 2, y + h / 2, 0.42, 0.27).fill(0x1f8a6f).circle(x + w / 2, y + h / 2 + 0.03, 0.2).fill(0xf6d2b0).ellipse(x + w / 2, y + h / 2 - 0.05, 0.2, 0.15).fill(0x4a3526);
+        break;
+    }
+  }
+
   private carView(c: Car) {
     let v = this.carViews.get(c.id);
     if (v) return v;
@@ -491,9 +643,95 @@ export class MapView {
       }
       this.slow = 0;
     }
+    // 建物の中にいるときは、街を隠して部屋を描く
+    const room = roomFor(s, c);
+    this.roomLayer.visible = !!room;
+    this.world.visible = this.glowWorld.visible = !room;
+    if (room && s.inside) {
+      const key = `${s.inside.poi}:${room.f.length}:${room.floor}`;
+      if (key !== this.roomKey) {
+        this.roomKey = key;
+        this.buildRoom(room);
+        this.roomCx = -1;
+      }
+      // 部屋ぜんぶが入る大きさ。ただし人が小さくなりすぎる広い部屋は、寄って自分を追う
+      const fit = Math.min((W - 28) / (room.w + 1), (H * 0.58) / (room.h + 1.4));
+      const zr = Math.max(fit, Math.min(34, (H * 0.58) / (room.h + 1.4)));
+      const viewW = W / zr;
+      const wantCx = room.w + 1.2 > viewW ? Math.max(viewW / 2 - 0.7, Math.min(room.w - viewW / 2 + 0.7, s.inside.x)) : room.w / 2;
+      this.roomCx = this.roomCx < 0 ? wantCx : this.roomCx + (wantCx - this.roomCx) * (1 - Math.exp(-dt * 7));
+      this.roomLayer.scale.set(zr);
+      this.roomLayer.position.set(W / 2 - this.roomCx * zr, H * 0.47 - (room.h * zr) / 2 + 16);
+      const near = nearSpot(s, c);
+      const t = performance.now() / 1000;
+      const ins = s.inside;
+      const fx = this.fxG;
+      fx.clear();
+      // 立入禁止の所：床をうすく赤く
+      for (const zn of room.zones ?? []) fx.rect(zn.x, zn.y, zn.w, zn.h).fill({ color: 0xd9463c, alpha: 0.055 });
+      // 鍵のかかった扉
+      room.doors?.forEach((d, i) => {
+        if (ins.open.includes(i)) fx.rect(d.x, d.y, d.w, d.h).fill({ color: 0x1b2330, alpha: 0.1 });
+        else fx.rect(d.x, d.y, d.w, d.h).fill(0x7a5a38).rect(d.x + 0.06, d.y + 0.06, d.w - 0.12, d.h - 0.12).fill(0xb08a5a).circle(d.x + d.w / 2, d.y + d.h / 2, 0.11).fill(0xf2b632);
+      });
+      const body = (x: number, y: number, a: number, col: number, up: boolean) => {
+        fx.ellipse(x + 0.06, y + 0.08, 0.42, 0.36).fill({ color: SHADE, alpha: 0.25 }).circle(x, y, 0.36).fill(col).circle(x + Math.cos(a) * 0.05, y + Math.sin(a) * 0.05, 0.21).fill(0xf6d2b0).circle(x - Math.cos(a) * 0.06, y - Math.sin(a) * 0.06, 0.18).fill(0x3a2d24);
+        // 脅されている間は、両手を上げる
+        if (up) for (const sd of [-1, 1]) fx.circle(x + Math.cos(a + sd * 1.3) * 0.5, y + Math.sin(a + sd * 1.3) * 0.5, 0.11).fill(0xf6d2b0);
+      };
+      if (ins.staff) for (const q of room.staff ?? []) body(q.x, q.y, Math.PI / 2, 0x1f8a6f, ins.held);
+      // 監視カメラと警備員：視界は扇の形で見せる（壁や箱のかげには届かない）。見られている間は赤くなる
+      for (const cm of room.cams ?? []) {
+        const off = cm.guard ? ins.guardDown : ins.camsOff;
+        const ang = camAngle(cm, ins.t);
+        if (!off) {
+          const N = 10;
+          const near = cm.guard ? 0.45 : CAM_NEAR;
+          const pts: number[] = [];
+          for (let k = 0; k <= N; k++) {
+            const a = ang - CAM_FOV + (2 * CAM_FOV * k) / N;
+            const len = Math.max(near, rayLen(room, ins.open, cm, a));
+            pts.push(cm.x + Math.cos(a) * len, cm.y + Math.sin(a) * len);
+          }
+          for (let k = N; k >= 0; k--) {
+            const a = ang - CAM_FOV + (2 * CAM_FOV * k) / N;
+            pts.push(cm.x + Math.cos(a) * near, cm.y + Math.sin(a) * near);
+          }
+          fx.poly(pts).fill({ color: mix(cm.guard ? 0x6aa6ff : 0xffcf3d, 0xff3b30, ins.seenT), alpha: 0.2 + 0.18 * ins.seenT });
+        }
+        if (cm.guard) body(cm.x, cm.y, off ? Math.PI : ang, 0x2a3f6b, off);
+        else fx.circle(cm.x, cm.y, 0.3).fill(0x1b2330).circle(cm.x + Math.cos(ang) * 0.2, cm.y + Math.sin(ang) * 0.2, 0.13).fill(off ? 0x667080 : 0xff3b30);
+      }
+      for (const f of room.f) if (f.t === 'panel') fx.circle(f.x + f.w - 0.16, f.y + 0.16, 0.08).fill(ins.camsOff ? 0x667080 : 0x3ddc84);
+      // 金庫のドリルの進み
+      if (ins.drill > 0 && room.heist) {
+        const dsp = room.spots[ins.drillAt];
+        const done = 1 - ins.drill / this.bal.heist[room.heist].drill;
+        fx.circle(dsp.x, dsp.y, 0.95).stroke({ width: 0.2, color: 0x1b2330, alpha: 0.35 });
+        fx.moveTo(dsp.x, dsp.y - 0.95).arc(dsp.x, dsp.y, 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, done)).stroke({ width: 0.2, color: 0xf2b632, cap: 'round' });
+      }
+      const sg = this.spotG;
+      sg.clear();
+      room.spots.forEach((sp, i) => {
+        if (!spotShown(s, room, i)) return;
+        const info = spotInfo(s, c, room, i, this.bal);
+        const col = !info.ok ? 0x8a93a0 : sp.exit ? 0x2f7bff : info.tone === 'crime' ? 0x9b4fd0 : 0xf2a900;
+        // 近くの1つだけ大きく見せる。ほかは小さな印にして、部屋をうるさくしない
+        if (i === near) {
+          const r = 0.72 + Math.sin(t * 4) * 0.05;
+          sg.circle(sp.x, sp.y, r).fill({ color: col, alpha: 0.3 }).circle(sp.x, sp.y, r).stroke({ width: 0.1, color: col, alpha: 0.95 }).circle(sp.x, sp.y, 0.13).fill(col);
+        } else sg.circle(sp.x, sp.y, 0.34).fill({ color: col, alpha: 0.16 }).circle(sp.x, sp.y, 0.34).stroke({ width: 0.06, color: col, alpha: 0.7 }).circle(sp.x, sp.y, 0.1).fill(col);
+      });
+      this.person.position.set(s.inside.x, s.inside.y);
+      this.person.rotation = s.inside.a;
+      this.night.clear().rect(0, 0, W, H).fill(0x1b2330);
+      return;
+    }
+    this.roomKey = '';
     const car = riding(s);
     const speed = car ? Math.abs(car.v) : 0;
-    const want = car ? (car.bike ? 1.55 : 1.4 - (speed / this.bal.move.car) * 0.4) : 1.75;
+    const fight = !car && s.hostile > 0 && s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < 90);
+    const want = car ? (car.bike ? 1.55 : 1.4 - (speed / this.bal.move.car) * 0.4) : fight ? 2.5 : 1.75;
     this.zoom += (want - this.zoom) * (1 - Math.exp(-dt * 2.2));
     const k = 1 - Math.exp(-dt * 14);
     const lead = car ? 0.55 : 0;
@@ -557,6 +795,8 @@ export class MapView {
       if (!vis) return;
       sp.scale.set(pinScale);
       if (p.kind === 'lot') sp.texture = s.biz.some((b) => b.poi === p.id) ? this.pinTex.biz : this.pinTex.lot;
+      else if (p.kind === 'hideout') sp.texture = s.hide === p.id ? this.pinTex.myhide : this.pinTex.hideout;
+      else if (p.kind === 'gang') sp.texture = s.turf[turfOf(c.size, p.x, p.y)] === -1 ? this.pinTex.myturf : this.pinTex.gang;
     });
 
     // 車
@@ -611,7 +851,6 @@ export class MapView {
         }
       }
     }
-    for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
 
     // 歩く人
     const pg = this.pedG;
@@ -621,11 +860,29 @@ export class MapView {
       pg.circle(p.x, p.y + 0.5, 2.3).fill({ color: 0x1b2330, alpha: 0.18 }).circle(p.x, p.y, 2.1).fill(p.color).circle(p.x, p.y - 0.2, 1.05).fill(0xf6d2b0);
     }
 
+    // 見張り（組織の色）と、弾の線
+    const fg = this.fightG;
+    fg.clear();
+    for (const t of s.thugs) if (s.hostile <= 0) fg.circle(t.hx, t.hy, this.bal.gang.warnDist).fill({ color: 0xff3b30, alpha: 0.055 });
+    for (const t of s.thugs) {
+      const col = GANGS[t.gang].color;
+      if (s.hostile > 0) fg.poly([t.x, t.y - 4.4, t.x - 1.1, t.y - 6.6, t.x + 1.1, t.y - 6.6]).fill(0xff3b30);
+      fg.circle(t.x + 0.6, t.y + 0.8, 3).fill({ color: SHADE, alpha: 0.22 }).circle(t.x, t.y, 2.9).fill(0x1b2330).circle(t.x, t.y, 2.3).fill(t.flash > 0 ? 0xffffff : col).circle(t.x + Math.cos(t.a) * 0.7, t.y + Math.sin(t.a) * 0.7, 1.15).fill(0xf6d2b0);
+      fg.moveTo(t.x + Math.cos(t.a) * 2, t.y + Math.sin(t.a) * 2).lineTo(t.x + Math.cos(t.a) * 4.4, t.y + Math.sin(t.a) * 4.4).stroke({ width: 0.8, color: 0x1b2330, cap: 'round' });
+      if (t.hp < this.bal.gang.thugHp) fg.rect(t.x - 3, t.y - 5.6, 6, 1).fill(0x1b2330).rect(t.x - 3, t.y - 5.6, (6 * Math.max(0, t.hp)) / this.bal.gang.thugHp, 1).fill(0xff5a4a);
+    }
+    for (const sh of s.shots) {
+      fg.moveTo(sh.x0, sh.y0).lineTo(sh.x1, sh.y1).stroke({ width: 1.1, color: 0xff9a3d, alpha: Math.min(0.7, sh.t * 6) }).moveTo(sh.x0, sh.y0).lineTo(sh.x1, sh.y1).stroke({ width: 0.45, color: 0xfff3c4, alpha: Math.min(1, sh.t * 10) });
+      glow(sh.x0, sh.y0, 18, 0xffd060, 0.8);
+    }
+
     // 自分
     this.me.visible = !car;
     this.me.position.set(s.x, s.y);
     this.me.rotation = s.a;
     this.me.scale.set(2.6);
+
+    for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
 
     // 夜：全体を青く暗くする
     this.night.clear();

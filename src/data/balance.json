@@ -28,7 +28,9 @@
     "car": 350000,
     "crowbar": 4000,
     "laptop": 90000,
-    "pawnRate": 0.6
+    "pawnRate": 0.6,
+    "lockpick": 30000,
+    "drill": 120000
   },
   "biz": {
     "stall": 120000,
@@ -85,7 +87,9 @@
     "chopMax": 90000,
     "houseDays": 4,
     "atmDays": 2,
-    "bankDays": 3
+    "bankDays": 3,
+    "alarmQuiet": 28,
+    "alarmLoud": 13
   },
   "traffic": {
     "cars": 26,
@@ -94,5 +98,68 @@
     "radius": 620,
     "arterialSpeed": 15,
     "minorSpeed": 9
+  },
+  "gang": {
+    "hideCost": 250000,
+    "gunCost": 150000,
+    "turfIncome": 25000,
+    "seizeMin": 180000,
+    "seizeMax": 420000,
+    "retake": 0.1,
+    "raid": 0.08,
+    "guards": 4,
+    "thugHp": 100,
+    "gunDamage": 34,
+    "gunHit": 0.78,
+    "gunRange": 95,
+    "thugHit": 0.45,
+    "thugDamage": 8,
+    "shotSeen": 22,
+    "shotUnseen": 3,
+    "downLoss": 0.3,
+    "war": 0.25,
+    "warnDist": 24
+  },
+  "heist": {
+    "seeTime": 0.6,
+    "conbini": {
+      "alarm": 60,
+      "silent": 0,
+      "heat": 26,
+      "quiet": 8,
+      "cam": 10,
+      "min": 20000,
+      "max": 60000,
+      "days": 1,
+      "drill": 0,
+      "caseMin": 0,
+      "caseMax": 0
+    },
+    "jewel": {
+      "alarm": 26,
+      "silent": 60,
+      "heat": 60,
+      "quiet": 10,
+      "cam": 18,
+      "min": 250000,
+      "max": 400000,
+      "days": 2,
+      "drill": 6,
+      "caseMin": 40000,
+      "caseMax": 90000
+    },
+    "bank": {
+      "alarm": 18,
+      "silent": 45,
+      "heat": 86,
+      "quiet": 12,
+      "cam": 28,
+      "min": 350000,
+      "max": 650000,
+      "days": 3,
+      "drill": 9,
+      "caseMin": 0,
+      "caseMax": 0
+    }
   }
 }

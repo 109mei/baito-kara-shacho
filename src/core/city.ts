@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 
 export type District = 'downtown' | 'commercial' | 'residential' | 'industrial' | 'park' | 'water';
-export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house';
+export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house' | 'hideout' | 'gang' | 'jewel';
 export interface Poi { id: number; kind: PoiKind; x: number; y: number; district: District; traffic: number }
 export interface Block { i: number; j: number; x0: number; y0: number; x1: number; y1: number; d: District; b: Float32Array }
 export interface City {
@@ -35,6 +35,10 @@ export function makeRng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// 縄張り：街を 横3×縦2 の6つに分ける。はじめは3つの組織が2つずつ持っている
+export const GANGS = [{ name: '赤蛇会', color: 0xd9463c }, { name: '青龍組', color: 0x2f6bd9 }, { name: '緑風連合', color: 0x2f9a5a }];
+export const turfOf = (size: number, x: number, y: number) => Math.min(2, Math.max(0, Math.floor((x / size) * 3))) + 3 * Math.min(1, Math.max(0, Math.floor((y / size) * 2)));
 
 export const TRAFFIC: Record<District, number> = { downtown: 1.6, commercial: 1.25, residential: 0.8, industrial: 0.55, park: 0.6, water: 0 };
 
@@ -223,6 +227,9 @@ export function makeCity(seed: number, bal: Balance): City {
   take('atm', 9, (b) => com(b) || res(b), 700);
   take('lot', 14, (b) => b.d !== 'industrial' || centerDist(b) < 3000, 650);
   take('house', 70, res, 240);
+  for (let t = 0; t < 6; t++) take('gang', 1, (b) => turfOf(S, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2) === t && centerDist(b) > 900 && !nearHome(b, 700), 0);
+  take('hideout', 6, (b) => res(b) || b.d === 'industrial', 1500);
+  take('jewel', 3, com, 1500); // 後から足した場所は、番号がずれないように最後に置く
 
   return { seed, size: S, xs, ys, ax, ay, h, v, ok, blocks, pois, home, bridges: [...bridgeSet], half, coast, river };
 }

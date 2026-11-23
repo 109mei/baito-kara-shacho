@@ -35,6 +35,43 @@ button:disabled { cursor: default; }
 .stars i { font-style: normal; color: rgba(255, 255, 255, 0.22); }
 .stars.seen { background: var(--bad); color: #fff; }
 
+/* 体力（銃を持つか、減っているときだけ出る） */
+.hp { display: flex; align-items: center; gap: 6px; margin-top: 5px; color: var(--good); }
+.hp > span { flex: 1; height: 8px; border-radius: 99px; background: rgba(27, 35, 48, 0.14); overflow: hidden; }
+.hp i { display: block; height: 100%; border-radius: 99px; background: var(--good); transition: width 0.15s; }
+.hp.low { color: var(--bad); }
+.hp.low i { background: var(--bad); }
+.ctx.fire { background: linear-gradient(#d9534a, var(--bad)); box-shadow: inset 0 -5px 0 #8e2424, 0 10px 20px -8px rgba(120, 20, 20, 0.8); min-width: 76px; }
+.ctx.fire:active { box-shadow: inset 0 -1px 0 #8e2424; }
+
+/* 建物の中では、知らせを少し下げる（右上の札と重ならないように） */
+.app[data-in] .toasts { top: 196px; }
+/* 立入禁止の所にいる */
+.zone-chip { padding: 5px 12px; border-radius: 99px; background: #ffd34d; color: var(--ink); font-weight: 900; font-size: 17px; }
+/* 警報が鳴っている間：画面のふちが、ゆっくり赤く脈打つ（1秒に1回。速い点滅はしない） */
+.alarm-edge { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 70px 6px rgba(226, 62, 52, 0.55); animation: edge 1s ease-in-out infinite; z-index: 3; }
+@keyframes edge { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+/* 撃たれた瞬間：ふちが赤く光って消える */
+.hurt { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 14px rgba(226, 40, 40, 0.75); animation: hurt 0.4s ease-out forwards; z-index: 3; }
+@keyframes hurt { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .alarm-edge { animation: none; opacity: 0.7; } .hurt { animation-duration: 0.01s; } }
+/* 押せないボタン（道具がない・警戒中） */
+.ctx.off { filter: grayscale(0.85); opacity: 0.72; }
+/* 見られている度合い（カメラや警備員の視界に入っている間たまる） */
+.watch { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px; background: var(--ink); color: #ffd34d; }
+.watch i { display: block; height: 6px; min-width: 2px; max-width: 64px; border-radius: 99px; background: #ff5a4a; transition: width 0.1s linear; }
+.watch::after { content: ''; width: 0; }
+.drill { padding: 6px 12px; border-radius: 99px; background: var(--ink); color: #fff; font-weight: 800; font-size: 17px; }
+/* 持ち物（全体地図の下） */
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 4px 8px; font-size: 17px; }
+.tools b { margin-right: 4px; }
+.tools span { padding: 3px 10px; border-radius: 99px; background: rgba(27, 35, 48, 0.08); font-weight: 700; }
+
+/* 建物の中にいるとき：場所の名前と、通報までの時間 */
+.where { background: rgba(255, 255, 255, 0.95); color: var(--ink); font-weight: 900; font-size: 17px; padding: 7px 14px 8px; border-radius: 14px 14px 4px 14px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.6); }
+.alarm { background: var(--crime); color: #fff; font-weight: 900; font-size: 14px; padding: 4px 12px 5px; border-radius: 999px; }
+.alarm.out { background: var(--bad); }
+
 /* つぎの目標：さわると、行き先へ道案内が出る */
 .goal { position: absolute; left: 10px; top: calc(env(safe-area-inset-top, 0px) + 100px); display: inline-flex; align-items: center; gap: 6px; max-width: 58%; padding: 5px 12px 7px 9px; border-radius: 6px 14px 14px 14px; background: var(--way); color: #fff; font-size: 13.5px; font-weight: 800; text-align: left; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.2), 0 6px 14px -6px rgba(20, 60, 160, 0.7); transition: transform 0.06s, top 0.2s; z-index: 5; }
 .goal:active { transform: translateY(2px); }
@@ -80,8 +117,11 @@ button:disabled { cursor: default; }
 .act:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 -1px 0 rgba(27, 35, 48, 0.13), 0 0 0 1px rgba(27, 35, 48, 0.09); }
 .act:disabled { background: #ebe6da; box-shadow: none; }
 .act:disabled .act-label { color: #8a8475; }
-.act-label { font-weight: 900; font-size: 16.5px; }
-.act-sub { font-size: 13px; font-weight: 700; color: var(--sub); text-align: right; }
+.act-label { font-weight: 900; font-size: 17px; }
+.act-sub { font-size: 14.5px; font-weight: 700; color: var(--sub); text-align: right; }
+/* 入り方の札：題と説明を縦に並べる */
+.act.stack { flex-direction: column; align-items: flex-start; gap: 3px; }
+.act.stack .act-sub { text-align: left; }
 .act.crime:not(:disabled) { box-shadow: inset 0 -4px 0 rgba(123, 63, 160, 0.3), 0 0 0 1.5px rgba(123, 63, 160, 0.5); }
 .act.crime:not(:disabled) .act-label { color: var(--crime); }
 .btn { min-height: 48px; border-radius: 14px; font-weight: 900; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 18px 4px; background: #fff; color: var(--ink); box-shadow: inset 0 -4px 0 rgba(27, 35, 48, 0.13), 0 0 0 1px rgba(27, 35, 48, 0.1); transition: transform 0.06s, box-shadow 0.06s; }
