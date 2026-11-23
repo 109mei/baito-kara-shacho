@@ -1,11 +1,11 @@
 // 画面。街の絵は PixiJS が描き、React は上に重ねる表示と札だけを受け持つ。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CREW, crewOf, hasKey, POI_NAME, poiActions, poiTitle, rank, routesOf, type Act } from '../core/sim';
+import { CREW, crewOf, DEV, hasKey, POI_NAME, poiActions, poiTitle, rank, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
 import { apartFill, apartIncome, PROC_NAMES, seen as seenStat, type Staff } from '../core/shop';
-import { crewUsed, DEAL_NAME, devHours, left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
+import { crewUsed, DEAL_NAME, devHours, releaseUnits, fameOf, left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { rankIndex } from '../core/eco';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
@@ -370,8 +370,8 @@ function Hub() {
         {gigs.length === 0 && <p className="hint">今月の話は、もうない。売り場でチラシを置くと増える</p>}
         {gigs.map((g) => (
           <div key={g.id} className={`gig ${g.taken ? 'on' : ''}`} data-gig={g.id}>
-            <span><b>{J[g.job].name}</b> +{yen(J[g.job].price - J[g.job].mat)}<small>{workMins(J[g.job], s.eco.know.handy ?? 0, tr, s.eco.fatigue)}分・ここから {dist(g.poi)}m・今月中</small></span>
-            {g.taken ? <><button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button><button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
+            <span><b>{J[g.job].name}</b> +{yen(J[g.job].price - J[g.job].mat)}<small>{workMins(J[g.job], s.eco.know[J[g.job].trade] ?? 0, tr, s.eco.fatigue)}分・{J[g.job].kind === 'desk' ? '自宅の机でやる・代金は翌月末' : `ここから ${dist(g.poi)}m`}・今月中</small></span>
+            {g.taken ? <>{J[g.job].kind !== 'desk' && <button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button>}<button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
           </div>
         ))}
         {(tr.bids.length > 0 || tr.deals.length > 0) && <h3><Term k="契約" />（会社との定期の仕事）</h3>}
@@ -413,7 +413,7 @@ function Hub() {
         {s.firm.staff.length > 0 && <h3>人</h3>}
         {s.firm.staff.map((q) => (
           <div key={q.id} className="gig col" data-staff={q.id}>
-            <span><b>{q.name}</b>　日給 {yen(q.wage)}・{q.at === CREW ? '契約の仕事' : q.at < 0 ? 'まだ店を決めていない' : kindName(s.biz.find((z) => z.poi === q.at)?.type ?? '')}{s.biz.find((z) => z.poi === q.at)?.type === 'works' ? `・${PROC_NAMES[q.proc]}` : ''}{s.biz.some((z) => z.boss === q.id) ? '（店長）' : ''}
+            <span><b>{q.name}</b>　日給 {yen(q.wage)}・{q.at === CREW ? '契約の仕事' : q.at === DEV ? '開発' : q.at < 0 ? 'まだ店を決めていない' : kindName(s.biz.find((z) => z.poi === q.at)?.type ?? '')}{s.biz.find((z) => z.poi === q.at)?.type === 'works' ? `・${PROC_NAMES[q.proc]}` : ''}{s.biz.some((z) => z.boss === q.id) ? '（店長）' : ''}
               <Stats p={q} />
               <small>{q.mood >= b.staff.quit ? '「話があります」と言っている' : q.mood >= b.staff.sign ? '遅刻が増えた' : q.months === 0 ? '働き始めたばかり' : '変わりなし'}{q.see[0] >= 3 ? `・まとめる力 ${q.lead}` : ''}</small></span>
             <div className="btns">
@@ -463,8 +463,12 @@ function Hub() {
         <p className="line num">材料 <b>{tr.mats}</b>個　できた品 <b>{(tr.stock.craftSmall ?? 0) + (tr.stock.craftOrder ?? 0)}</b>個</p>
         <p className="line num">今月の枠　小物 あと<b>{left(tr, 'craftSmall')}</b>（{tr.quota.craftSmall ?? 0}）　注文品 あと<b>{left(tr, 'craftOrder')}</b>（{tr.quota.craftOrder ?? 0}）</p>
         <h3>個人開発</h3>
-        {tr.proj ? <p className="line num">{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {devHours(J[tr.proj.job], b)}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}</p> : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
-        {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month)}</b>本</p>)}
+        {tr.proj ? (
+          <p className="line num" data-proj>{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {devHours(J[tr.proj.job], b)}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}
+            <small className="sub">品質 {tr.proj.q ?? 50}・期待 {tr.proj.hype ?? 0}%{tr.proj.demo ? '・体験版あり' : ''}　発売の見込み {releaseUnits(J[tr.proj.job], fameOf(tr, 'soft'), tr.proj, tr.fans ?? 0, b)}本{s.firm.staff.some((q) => q.at === DEV) ? `　開発の人 ${s.firm.staff.filter((q) => q.at === DEV).length}人` : ''}</small></p>
+        ) : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
+        {(tr.fans ?? 0) >= 1 && <p className="line num">次も買ってくれる人 <b>{Math.round(tr.fans ?? 0)}</b>人</p>}
+        {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month, b.soft.saleBoost)}</b>本<small className="sub">評価 ★{(1 + (t.q ?? 50) / 25).toFixed(1)}{t.upd ? `・アップデート ${t.upd}回` : ''}{t.sale === month ? '・セール中' : ''}</small></p>)}
         {fame.length > 0 && <><h3><Term k="知名度" /></h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
         {tr.recv.length > 0 && <><h3>入金の予定</h3>{tr.recv.map((r, i) => <p key={i} className="line num">{r.what}　<b>{yen(r.amount)}</b>（月末）</p>)}</>}
         <h3>新聞</h3>

@@ -10,7 +10,7 @@ const rec = (keys: string[]) => z.object(Object.fromEntries(keys.map((k) => [k, 
 const prof = rec(['alarm', 'silent', 'heat', 'quiet', 'cam', 'min', 'max', 'days', 'drill', 'caseMin', 'caseMax']);
 
 // 仕事の表の1行。行を足せば、仕事が増える
-const job = z.object({ trade: z.string(), name: z.string(), kind: z.enum(['make', 'visit', 'title']), mat: n, price: pos, mins: n, fame: n, famePts: n, slots: n, perFame: n, perPitch: n, high: z.boolean(), cap: n, tool: z.string(), decay: n, hours: n });
+const job = z.object({ trade: z.string(), name: z.string(), kind: z.enum(['make', 'visit', 'title', 'desk']), mat: n, price: pos, mins: n, fame: n, famePts: n, slots: n, perFame: n, perPitch: n, high: z.boolean(), cap: n, tool: z.string(), decay: n, hours: n });
 
 export const BalanceSchema = z.object({
   world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
@@ -18,6 +18,7 @@ export const BalanceSchema = z.object({
   time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23), daysPerMonth: pos.int(), monthsPerYear: pos.int(), quotaScale: pos.max(1), softFame: pos }),
   credit: rec(['start', 'run', 'black', 'paid', 'late', 'red3', 'goodYear', 'taxPaid', 'arrest', 'arrestCap', 'bankruptCap', 'capMonths', 'planGood', 'planBad', 'restartCash', 'bankrupt']),
   corp: rec(['fee', 'capital', 'salary', 'step', 'unit']),
+  soft: rec(['qBase', 'qKnow', 'fixHours', 'fixGain', 'promoHours', 'promoGain', 'promoMax', 'demoHours', 'demoAt', 'demoHype', 'updHours', 'updMax', 'saleBoost', 'fanRate', 'fanBuy', 'teamHours']),
   pro: rec(['buildValue', 'buildCrew', 'buildMonths', 'buildFund', 'buildSkill', 'haulValue', 'haulCrew', 'haulMonths', 'trucks', 'truck', 'haulSkill', 'guardValue', 'guardCrew', 'guardMonths', 'guardFee', 'guardHours', 'big', 'bigJobs', 'bigRank']),
   loan: rec(['rateD', 'rateC', 'rateB', 'rateA', 'startRatio', 'startKnow', 'months', 'bankMonths', 'bankPayShare', 'deferFee']),
   tax: rec(['person', 'corp', 'delayMonths']),

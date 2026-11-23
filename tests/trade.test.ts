@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { apply, adviceOf, clientsOf, createGame, fromSave, nearby, poiActions, toSave } from '../src/core/sim';
-import { baseQuota, firstUnits, left, newTr, offerBids, quality, scoreOf, scoreParts, settleDeals, workMins, type Bid } from '../src/core/trade';
+import { baseQuota, devHours, endMonth, firstUnits, left, newTr, offerBids, quality, releaseUnits, scoreOf, scoreParts, settleDeals, startQ, unitsAt, workMins, type Bid } from '../src/core/trade';
 import { balance as b } from '../src/data/schema';
 
 const city = makeCity(20261123, b);
@@ -127,8 +127,9 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
       act(s, 'home', 'dev');
     }
     expect(s.tr.proj).toBeNull();
-    const first = firstUnits(J.softSmall, 0, false, b.time.quotaScale); // 仕様書の 30本 に、月の短さの倍率を掛けた 9本
-    expect(first).toBe(9);
+    expect(firstUnits(J.softSmall, 0, false, b.time.quotaScale)).toBe(9); // 仕様書の 30本 に、月の短さの倍率を掛けた 9本
+    const first = releaseUnits(J.softSmall, 0, { job: 'softSmall', hours: 0, out: false, q: startQ(30, b), hype: 0 }, 0, b); // 品質（知識30で59）のぶん、少し多い
+    expect(first).toBe(10);
     expect(s.tr.titles[0].first).toBe(first);
     const bank = s.bank;
     sleepToMonthEnd(s);
@@ -306,3 +307,116 @@ describe('仕事を受けた家', () => {
     expect(poiActions(s, city, p, b).some((a) => a.id === 'gig')).toBe(true);
   });
 });
+
+describe('個人開発を広げる（品質・期待・体験版・アップデート・セール・ファン・開発の仕事・チーム）', () => {
+  const dev = () => {
+    const s = createGame(7, city, b);
+    s.laptop = true;
+    s.cash = 900000;
+    s.clock = 9 * 60;
+    return s;
+  };
+  it('発売の本数は、品質50で1倍（0で0.6倍、100で1.4倍）。期待は1%で1%増える。ファンの3割が買う', () => {
+    const pj = (q: number, hype: number) => ({ job: 'softMid', hours: 0, out: false, q, hype });
+    const base = firstUnits(J.softMid, 20, false, b.time.quotaScale);
+    expect(releaseUnits(J.softMid, 20, pj(50, 0), 0, b)).toBe(base);
+    expect(releaseUnits(J.softMid, 20, pj(100, 0), 0, b)).toBe(Math.round(base * 1.4));
+    expect(releaseUnits(J.softMid, 20, pj(0, 0), 0, b)).toBe(Math.round(base * 0.6));
+    expect(releaseUnits(J.softMid, 20, pj(50, 50), 0, b)).toBe(Math.round(base * 1.5));
+    expect(releaseUnits(J.softMid, 20, pj(50, 0), 100, b)).toBe(base + 100 * b.soft.fanBuy);
+    expect(startQ(0, b)).toBe(b.soft.qBase);
+  });
+  it('街の中で：不具合を直すと品質、宣伝と体験版で期待が上がり、発売の見込みが増える。時間は「作る」に入らない', () => {
+    const s = dev();
+    act(s, 'home', 'devSmall');
+    expect(s.tr.proj).toMatchObject({ q: b.soft.qBase, hype: 0 });
+    const acts = () => poiActions(s, city, city.home, b);
+    expect(acts().find((a) => a.id === 'fix')!.ok).toBe(false); // まだ直す所がない
+    expect(acts().find((a) => a.id === 'demo')!.ok).toBe(false); // 半分まで作ってから
+    act(s, 'home', 'dev');
+    const h = s.tr.proj!.hours;
+    const t0 = s.clock;
+    act(s, 'home', 'fix');
+    expect(s.clock - t0).toBe(b.soft.fixHours * 60);
+    expect(s.tr.proj!.q).toBe(b.soft.qBase + b.soft.fixGain);
+    expect(s.tr.proj!.hours).toBe(h);
+    act(s, 'home', 'promo');
+    expect(s.tr.proj!.hype).toBe(b.soft.promoGain);
+    while (s.tr.proj!.hours < devHours(J.softSmall, b) * b.soft.demoAt) {
+      s.eco.fatigue = 0;
+      act(s, 'home', 'dev');
+    }
+    const fame = s.tr.fame.soft ?? 0;
+    act(s, 'home', 'demo');
+    expect(s.tr.proj!.demo).toBe(true);
+    expect(s.tr.proj!.hype).toBe(b.soft.promoGain + b.soft.demoHype);
+    expect(s.tr.fame.soft).toBe(fame + 1);
+    act(s, 'home', 'demo');
+    expect(s.tr.proj!.hype).toBe(b.soft.promoGain + b.soft.demoHype); // 体験版は1回だけ
+    const want = releaseUnits(J.softSmall, s.tr.fame.soft, s.tr.proj!, 0, b);
+    expect(want).toBeGreaterThan(firstUnits(J.softSmall, s.tr.fame.soft, false, b.time.quotaScale));
+    while (s.tr.proj) {
+      s.eco.fatigue = 0;
+      act(s, 'home', 'dev');
+    }
+    expect(s.tr.titles[0].first).toBe(want);
+    expect(s.tr.titles[0].q).toBe(b.soft.qBase + b.soft.fixGain);
+  });
+  it('アップデートは売れ行きの落ちを1か月ぶん止める（3回まで）。セールは1作品に1回で、本数2倍・値段半分', () => {
+    const t = { job: 'softSmall', month: 0, first: 40 };
+    expect(unitsAt(J.softSmall, t, 2)).toBe(10);
+    expect(unitsAt(J.softSmall, { ...t, upd: 1 }, 2)).toBe(20);
+    expect(unitsAt(J.softSmall, { ...t, upd: 5 }, 2)).toBe(40);
+    const tr = newTr();
+    tr.titles.push({ ...t, sale: 1 });
+    endMonth(tr, 1, b);
+    expect(tr.recv[0].amount).toBe(40 * J.softSmall.price * 0.5); // 20本 × 2倍 × 半額
+    expect(tr.fans).toBe(40 * b.soft.fanRate);
+    // 街の中で
+    const s = dev();
+    s.tr.titles.push({ job: 'softSmall', month: 0, first: 40 });
+    s.eco.days = b.time.daysPerMonth; // 2か月目
+    for (let i = 0; i < 5; i++) {
+      s.eco.fatigue = 0;
+      act(s, 'home', 'devUpdate');
+    }
+    expect(s.tr.titles[0].upd).toBe(b.soft.updMax);
+    act(s, 'home', 'devSale');
+    expect(s.tr.titles[0].sale).toBe(1);
+    expect(poiActions(s, city, city.home, b).find((a) => a.id === 'devSale')!.ok).toBe(false);
+  });
+  it('作品の種類：仕事用の道具は知名度10から、大作は30から。道具は長く売れる', () => {
+    const s = dev();
+    const ok = (id: string) => poiActions(s, city, city.home, b).find((a) => a.id === id)!.ok;
+    expect([ok('devSmall'), ok('devMid'), ok('devTool'), ok('devBig')]).toEqual([true, true, false, false]);
+    s.tr.fame.soft = 10;
+    expect(ok('devTool')).toBe(true);
+    s.tr.fame.soft = 30;
+    expect(ok('devBig')).toBe(true);
+    expect(J.softTool.decay).toBeGreaterThan(J.softMid.decay);
+  });
+  it('開発の仕事（会社から）：ノートPCがあると話が届く。売り込むと増える。自宅の机でやり、代金は翌月末', () => {
+    const s = dev();
+    expect(s.tr.gigs.some((g) => g.job === 'softWork')).toBe(false); // PCを買う前に始まった月には、届いていない
+    s.clock = 10 * 60;
+    for (let i = 0; i < 2; i++) act(s, 'market', 'pitchSoft');
+    const g = s.tr.gigs.find((q) => q.job === 'softWork')!;
+    expect(g.poi).toBe(city.home.id);
+    apply(s, city, { type: 'gig', id: g.id, take: true }, b);
+    const cash = s.cash;
+    act(s, 'home', 'deskGig');
+    expect(s.tr.gigs.some((q) => q.id === g.id)).toBe(false);
+    expect(s.cash).toBe(cash);
+    expect(s.tr.recv.at(-1)).toMatchObject({ amount: J.softWork.price, what: '開発の仕事の代金' });
+    expect(s.eco.m.sales).toBe(J.softWork.price);
+  });
+  it('開発に回した人は、作っている作品を毎日進める', () => {
+    const s = dev();
+    act(s, 'home', 'devMid');
+    const mk = (id: number, skill: number) => ({ id, name: `人${id}`, bio: '', skill, service: 50, honest: 80, lead: 50, grow: 1, ask: 8000, wage: 8000, mood: 0, exp: 1, at: -3, proc: 0, see: [3, 3, 3], months: 3, quiet: 0 });
+    s.firm.staff.push(mk(1, 100) as never, mk(2, 50) as never);
+    act(s, 'home', 'sleep');
+    expect(s.tr.proj!.hours).toBeCloseTo(1.5 * b.soft.teamHours, 5);
+  });
+});
+

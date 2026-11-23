@@ -4,7 +4,9 @@ import type { Balance } from '../data/schema';
 
 export type Job = Balance['jobs'][string];
 export interface Gig { id: number; job: string; poi: number; due: number; taken: boolean } // 届いた話（due＝期限の月）
-export interface Title { job: string; month: number; first: number } // 発売した作品（発売した月と、その月の本数）
+export interface Title { job: string; month: number; first: number; upd?: number; sale?: number; q?: number } // 発売した作品（発売した月と、その月の本数。upd＝アップデートの回数、sale＝セールをした月、q＝品質）
+// 作っている作品：q＝品質（0〜100）、hype＝発売前の期待（0〜）、demo＝体験版を出した
+export interface Proj { job: string; hours: number; out: boolean; q?: number; hype?: number; demo?: boolean }
 export interface Tr {
   fame: Record<string, number>; // 業種ごとの知名度
   quota: Record<string, number>; // 今月の枠（仕事ごと）
@@ -14,7 +16,9 @@ export interface Tr {
   gigs: Gig[]; nextGig: number;
   pitch: Record<string, number>; // 今月の売り込みの回数（業種ごと）
   power: boolean; washer: boolean; // 電動の道具、洗浄の道具
-  proj: { job: string; hours: number; out: boolean } | null; // 作っている作品
+  proj: Proj | null; // 作っている作品
+  fans?: number; // これまでの作品を買った人のうち、次も買ってくれる人
+  pc?: boolean; // ノートPCを持っている（開発の仕事の話が届く）
   titles: Title[];
   recv: { amount: number; due: number; what: string }[]; // あとで入るお金（翌月末）
   q: { sum: number; n: number }; // 今月の品質
@@ -34,6 +38,7 @@ export function baseQuota(tr: Tr, job: Job, scale = 1): number {
   const f = fameOf(tr, job.trade);
   const p = tr.pitch[job.trade] ?? 0;
   if (job.tool === 'washer' && !tr.washer) return 0;
+  if (job.tool === 'laptop' && !tr.pc) return 0;
   if (f < job.fame) return 0;
   if (job.high) return Math.min(job.cap, job.slots + (f - job.fame) * job.perFame) * scale; // 高い仕事：知名度が届いてから
   return (job.slots + f * job.perFame + p * job.perPitch) * scale;
@@ -51,7 +56,7 @@ export const devHours = (job: Job, bal: Balance) => Math.round(job.hours * bal.t
 export const left = (tr: Tr, id: string) => Math.max(0, Math.floor((tr.quota[id] ?? 0) - (tr.used[id] ?? 0)));
 
 // 月の初め：枠を決める（±10% ゆらぐ。ゆらいだあとの数が見える）。客先から届く話を作る
-export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => number, bal: Balance, k: Record<string, number> = {}) {
+export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => number, bal: Balance, k: Record<string, number> = {}, home = -1) {
   tr.used = {};
   tr.q = { sum: 0, n: 0 };
   tr.broken = 0;
@@ -60,15 +65,15 @@ export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => 
     if (job.kind === 'title') continue;
     const base = baseQuota(tr, job, bal.time.quotaScale);
     tr.quota[id] = (base > 0 ? takeWhole(tr, id, base * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1)) : 0) + (k[id] ?? 0); // k＝景気と出来事の倍率
-    if (job.kind !== 'visit' || !clients.length) continue;
-    // 客先へ行く仕事は、1件ずつ話として届く
+    if ((job.kind !== 'visit' && job.kind !== 'desk') || !clients.length) continue;
+    // 客先へ行く仕事と、自宅の机でやる仕事は、1件ずつ話として届く
     const have = tr.gigs.filter((g) => g.job === id).length;
-    for (let k = have; k < tr.quota[id]; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
+    for (let k = have; k < tr.quota[id]; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: job.kind === 'desk' ? home : clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
   }
   tr.pitch = {};
 }
 // 売り込み：その月の枠が増える
-export function pitch(tr: Tr, trade: string, month: number, clients: number[], rnd: () => number, bal: Balance): number {
+export function pitch(tr: Tr, trade: string, month: number, clients: number[], rnd: () => number, bal: Balance, home = -1): number {
   let got = 0;
   tr.pitch[trade] = (tr.pitch[trade] ?? 0) + 1;
   for (const [id, job] of Object.entries(bal.jobs)) {
@@ -76,7 +81,7 @@ export function pitch(tr: Tr, trade: string, month: number, clients: number[], r
     const add = takeWhole(tr, id, job.perPitch * bal.time.quotaScale);
     got += add;
     tr.quota[id] = (tr.quota[id] ?? 0) + add;
-    if (job.kind === 'visit' && clients.length) for (let k = 0; k < add; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
+    if ((job.kind === 'visit' || job.kind === 'desk') && clients.length) for (let k = 0; k < add; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: job.kind === 'desk' ? home : clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
   }
   return got;
 }
@@ -97,7 +102,12 @@ export function record(tr: Tr, id: string, n: number, q: number) {
 
 // 作品（個人開発）：発売した月の本数 ＝ 基本 + 知名度 × 係数（知名度は40まで効く）。翌月からは決まった割合で減る
 export const firstUnits = (job: Job, fame: number, out: boolean, scale = 1) => Math.round((job.slots + job.perFame * Math.min(40, fame)) * (out ? 1.3 : 1) * scale);
-export const unitsAt = (job: Job, t: Title, month: number) => Math.round(t.first * Math.pow(job.decay, month - t.month));
+// アップデートをすると、売れ行きの落ちが1か月ぶん止まる。セールの月は、本数が増える（値段は半分）
+export const unitsAt = (job: Job, t: Title, month: number, saleBoost = 2) => Math.round(t.first * Math.pow(job.decay, Math.max(0, month - t.month - (t.upd ?? 0))) * (t.sale === month ? saleBoost : 1));
+// 品質と期待で、発売した月の本数が変わる：品質50で1倍（0で0.6倍、100で1.4倍）、期待は 1% で 1% 増える。前の作品を買った人（ファン）の一部も買う
+export const releaseUnits = (job: Job, fame: number, pj: Proj, fans: number, bal: Balance) => Math.round(firstUnits(job, fame, pj.out, bal.time.quotaScale) * (0.6 + (pj.q ?? 50) / 125) * (1 + (pj.hype ?? 0) / 100) + fans * bal.soft.fanBuy);
+// 作り始めるときの品質：自分の知識で決まる
+export const startQ = (know: number, bal: Balance) => Math.round(bal.soft.qBase + know * bal.soft.qKnow);
 
 export interface MonthEnd { income: number; notes: string[]; sold: number }
 // 月末：作品の売上を数え（入金は翌月末）、届いていた入金を受け取り、知名度を更新する
@@ -106,12 +116,13 @@ export function endMonth(tr: Tr, month: number, bal: Balance): MonthEnd {
   let sold = 0;
   for (const t of tr.titles) {
     const job = bal.jobs[t.job];
-    const u = unitsAt(job, t, month);
+    const u = unitsAt(job, t, month, bal.soft.saleBoost);
     if (u <= 0) continue;
     sold += u;
-    tr.recv.push({ amount: u * job.price, due: month + 1, what: `${job.name}の売上` });
+    tr.recv.push({ amount: Math.round(u * job.price * (t.sale === month ? 0.5 : 1)), due: month + 1, what: `${job.name}の売上` });
   }
   tr.titles = tr.titles.filter((t) => unitsAt(bal.jobs[t.job], t, month + 1) > 0);
+  tr.fans = Math.round(((tr.fans ?? 0) + sold * bal.soft.fanRate) * 10) / 10; // 買った人の一部が、次も買ってくれる
   let income = 0;
   for (const r of tr.recv) if (r.due <= month) income += r.amount;
   tr.recv = tr.recv.filter((r) => r.due > month);
@@ -132,7 +143,7 @@ export function endMonth(tr: Tr, month: number, bal: Balance): MonthEnd {
     }
     const div = trade === 'craft' ? 10 : trade === 'handy' ? 3 : 1;
     let up = (trade === 'soft' ? sold / bal.time.softFame : pts / div) / bal.time.quotaScale; // 月が短くて数が少ないぶん、1つあたりの知名度を大きくする（月あたりの伸びは仕様書と同じ）
-    if (trade === 'soft') any = sold > 0;
+    if (trade === 'soft') any = sold > 0 || (tr.used.softWork ?? 0) > 0;
     const before = fameOf(tr, trade);
     if (any && trade !== 'soft' && tr.q.n > 0) {
       const avg = tr.q.sum / tr.q.n;

@@ -4,7 +4,7 @@ import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
 import { apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
-import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
+import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, releaseUnits, settleDeals, startMonth, startQ, unitsAt, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -82,9 +82,24 @@ export type Cmd =
   | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
+// 作品の種類と、作り始める行動
+export const DEV_START: [string, string][] = [['softSmall', 'devSmall'], ['softMid', 'devMid'], ['softTool', 'devTool'], ['softBig', 'devBig']];
+// 開発に回している人の持ち場
+export const DEV = -3;
+// 作品を発売する
+function release(s: GameState, bal: Balance, ev: Ev[]) {
+  const pj = s.tr.proj;
+  if (!pj) return;
+  const job = bal.jobs[pj.job];
+  const first = releaseUnits(job, fameOf(s.tr, 'soft'), pj, s.tr.fans ?? 0, bal);
+  s.tr.titles.push({ job: pj.job, month: monthOf(s.eco, bal), first, q: pj.q ?? 50 });
+  s.tr.proj = null;
+  ev.push({ type: 'toast', text: `${job.name}を発売した。評価 ★${(1 + (pj.q ?? 50) / 25).toFixed(1)}・今月の見込み ${first}本（入金は翌月末）`, tone: 'good' });
+  ev.push({ type: 'sfx', name: 'ok' });
+}
 // 手でやる操作（仕様書 11章）：仕事ごとに1つ。上出来は品質 +5、やり直しは時間が2割多くかかる。お金と材料は減らない
 export type HandKind = 'sort' | 'trace' | 'tap';
-export const HAND: Record<string, HandKind> = { craftSmall: 'sort', craftOrder: 'sort', gig: 'trace', deal: 'trace', dev: 'tap', tend: 'tap' };
+export const HAND: Record<string, HandKind> = { craftSmall: 'sort', craftOrder: 'sort', gig: 'trace', deal: 'trace', dev: 'tap', tend: 'tap', fix: 'tap', deskGig: 'sort' };
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
 
 export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店', market: '売り場', office: '窓口', apart: 'アパート' };
@@ -301,6 +316,7 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         { id: 'wholesale', label: '余った品を卸に売る', sub: have > n ? `${have - n}個・半値・代金は翌月末` : '余っていない', ok: have > n && rankIndex(s.eco.credit) >= 1, why: have > n ? '卸との取引は、信用のランク D から' : '余っていない' },
         { id: 'pitchCraft', label: '品を売り込む', sub: '2時間・今月の枠が増える', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
         { id: 'pitchHandy', label: '便利屋のチラシを置く', sub: '2時間・話が届く', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
+        { id: 'pitchSoft', label: '開発の仕事を売り込む', sub: s.laptop ? '2時間・会社から開発の仕事の話が届く' : 'ノートPCが要る', ok: s.laptop && h >= 8 && h < 20, why: s.laptop ? '8時〜20時だけ' : 'ノートPCが要る' },
       ];
     }
     case 'office': {
@@ -491,13 +507,33 @@ function homeActs(s: GameState, bal: Balance): Act[] {
     { id: 'craftOrder', label: '注文品を1つ作る', sub: fameOf(tr, 'craft') < J.craftOrder.fame ? `知名度 ${J.craftOrder.fame} から注文が届く（いま ${fameOf(tr, 'craft')}）` : `材料6個・${mins('craftOrder', 1)}分`, ok: fameOf(tr, 'craft') >= J.craftOrder.fame && tr.mats >= 6, why: fameOf(tr, 'craft') < J.craftOrder.fame ? 'まだ注文が届かない' : '材料が足りない' },
     { id: 'rest', label: '2時間 休む', sub: `疲れ ${Math.round(s.eco.fatigue)}`, ok: s.eco.fatigue > 0, why: '疲れていない' },
   ];
+  const S = bal.soft;
+  const fame = fameOf(tr, 'soft');
+  const month = monthOf(s.eco, bal);
   if (!tr.proj) {
-    for (const id of ['softSmall', 'softMid']) out.push({ id: id === 'softSmall' ? 'devSmall' : 'devMid', label: `${J[id].name}を作り始める`, sub: s.laptop ? `${devHours(J[id], bal)}時間・1本 ${yen(J[id].price)}・見込み ${firstUnits(J[id], fameOf(tr, 'soft'), false, bal.time.quotaScale)}本` : 'ノートPCが要る', ok: s.laptop, why: 'ノートPCが要る。道具屋で買える' });
+    // 作り始める：作品の種類は、数値の表の行（知名度が届いた物だけ始められる）
+    for (const [id, act] of DEV_START) {
+      const job = J[id];
+      const pj = { job: id, hours: 0, out: false, q: startQ(s.eco.know.soft ?? 0, bal), hype: 0 };
+      out.push({ id: act, label: `${job.name}を作り始める`, sub: !s.laptop ? 'ノートPCが要る' : fame < job.fame ? `知名度 ${job.fame} から（いま ${fame}）` : `${devHours(job, bal)}時間・1本 ${yen(job.price)}・見込み ${releaseUnits(job, fame, pj, tr.fans ?? 0, bal)}本`, ok: s.laptop && fame >= job.fame, why: !s.laptop ? 'ノートPCが要る。道具屋で買える' : `知名度が ${job.fame} になってから` });
+    }
   } else {
-    const job = J[tr.proj.job];
-    out.push({ id: 'dev', label: '4時間 作る', sub: `${job.name}　${Math.floor(tr.proj.hours)} / ${devHours(job, bal)}時間`, ok: true });
-    out.push({ id: 'devOut', label: '絵と音を外に頼む', sub: tr.proj.out ? '頼んである' : `${yen(m.devOut)}／作る時間が4分の3・本数が1.3倍`, ok: !tr.proj.out && s.cash + s.dirty >= m.devOut, why: tr.proj.out ? '頼んである' : 'お金が足りない' });
+    const pj = tr.proj;
+    const job = J[pj.job];
+    const need = devHours(job, bal);
+    out.push({ id: 'dev', label: '4時間 作る', sub: `${job.name}　${Math.floor(pj.hours)} / ${need}時間・発売の見込み ${releaseUnits(job, fame, pj, tr.fans ?? 0, bal)}本`, ok: true });
+    out.push({ id: 'fix', label: '不具合を直す', sub: `${S.fixHours}時間／品質 ${pj.q ?? 50} → ${Math.min(100, (pj.q ?? 50) + S.fixGain)}（品質が高いほど売れる）`, ok: (pj.q ?? 50) < 100 && pj.hours > 0, why: pj.hours > 0 ? 'これ以上は上がらない' : 'まだ直す所がない。先に作る' });
+    out.push({ id: 'promo', label: '作品を宣伝する', sub: `${S.promoHours}時間／期待 ${pj.hype ?? 0}% → ${Math.min(S.promoMax, (pj.hype ?? 0) + S.promoGain)}%（発売の月の本数が増える）`, ok: (pj.hype ?? 0) < S.promoMax, why: 'もう十分に知られている' });
+    out.push({ id: 'demo', label: '体験版を出す', sub: pj.demo ? '出してある' : pj.hours < need * S.demoAt ? `半分まで作ってから（あと ${Math.ceil(need * S.demoAt - pj.hours)}時間）` : `${S.demoHours}時間／期待 +${S.demoHype}%・知名度 +1`, ok: !pj.demo && pj.hours >= need * S.demoAt, why: pj.demo ? '出してある' : '半分まで作ってから' });
+    out.push({ id: 'devOut', label: '絵と音を外に頼む', sub: pj.out ? '頼んである' : `${yen(m.devOut)}／作る時間が4分の3・本数が1.3倍`, ok: !pj.out && s.cash + s.dirty + Math.max(0, s.eco.corp?.bank ?? 0) >= m.devOut, why: pj.out ? '頼んである' : 'お金が足りない' });
   }
+  // 発売した作品：アップデートで落ちを止める。セールで本数を増やす
+  const up = tr.titles.filter((t) => (t.upd ?? 0) < S.updMax).sort((a, b2) => b2.month - a.month)[0];
+  if (tr.titles.length) out.push({ id: 'devUpdate', label: '発売した作品を直す（アップデート）', sub: up ? `${S.updHours}時間／${J[up.job].name}の売れ行きの落ちが、1か月ぶん止まる（あと ${S.updMax - (up.upd ?? 0)}回）` : 'もう直す所がない', ok: !!up, why: 'もう直す所がない' });
+  const sl = tr.titles.filter((t) => t.sale === undefined && t.month < month).sort((a, b2) => b2.month - a.month)[0];
+  if (tr.titles.length) out.push({ id: 'devSale', label: 'セールをする', sub: sl ? `${J[sl.job].name}　今月の本数が${S.saleBoost}倍・値段は半分（売上は同じ。知名度とファンが増える）・1作品に1回` : '発売した月と、セールずみの作品はできない', ok: !!sl, why: 'いまセールできる作品がない' });
+  const dg = tr.gigs.find((g) => g.taken && J[g.job].kind === 'desk');
+  if (s.laptop) out.push({ id: 'deskGig', label: '受けた開発の仕事をする', sub: dg ? `${Math.round(workMins(J[dg.job], s.eco.know.soft ?? 0, tr, s.eco.fatigue) / 60 * 10) / 10}時間・${yen(J[dg.job].price)}` : '「仕事と商売」で話を受ける。売り場で売り込むと届く', ok: !!dg, why: '受けた話がない' });
   return out;
 }
 
@@ -596,6 +632,14 @@ export function nearSpot(s: GameState, city: City): number {
 
 // ---- 1日の終わり：生活費、事業の利益、汚れたお金が事業を通ってきれいになる
 function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
+  // 開発に回した人は、作っている作品を毎日進める（技能 100 の人で 1日 6時間ぶん）
+  if (s.tr.proj) {
+    const team = s.firm.staff.filter((q) => q.at === DEV).reduce((a, q) => a + (q.skill / 100) * bal.soft.teamHours, 0);
+    if (team > 0) {
+      s.tr.proj.hours += team;
+      if (s.tr.proj.hours >= devHours(bal.jobs[s.tr.proj.job], bal)) release(s, bal, ev);
+    }
+  }
   // 人がいる店は、きょう1日 開いていた。売上に混ぜられる汚れたお金は、本当の売上の2割まで
   let sales = 0;
   let cost = 0;
@@ -745,7 +789,8 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       z.aware = Math.max(0, z.aware - bal.shop.awareDecay);
       z.m = { cust: 0, lost: 0, sales: 0, cost: 0 };
     }
-    startMonth(s.tr, ended + 1, clientsOf(city), monthRng(s.seed, ended + 1), bal, { all: phaseOf(s.eco).cust, craft: s.eco.fx.includes('boom') ? 1.5 : 1, handyTidy: s.eco.fx.includes('typhoon') ? 3 : 0 });
+    s.tr.pc = s.laptop;
+    startMonth(s.tr, ended + 1, clientsOf(city), monthRng(s.seed, ended + 1), bal, { all: phaseOf(s.eco).cust, craft: s.eco.fx.includes('boom') ? 1.5 : 1, handyTidy: s.eco.fx.includes('typhoon') ? 3 : 0 }, city.home.id);
     s.cash = out.cash;
     s.bank = out.bank;
     if (out.corpBankrupt && !out.bankrupt) {
@@ -1011,7 +1056,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       q.quiet = 0;
       toast(`${q.name}と話した`);
     } else if (q && cmd.act === 'assign') {
-      const spots = [-1, ...s.biz.map((z) => z.poi), ...(PRO_KINDS.some((k) => s.firm.permits.includes(k)) ? [CREW] : [])];
+      const spots = [-1, ...s.biz.map((z) => z.poi), ...(PRO_KINDS.some((k) => s.firm.permits.includes(k)) ? [CREW] : []), ...(s.laptop ? [DEV] : [])];
       q.at = spots[(spots.indexOf(q.at) + 1) % spots.length];
       for (const z of s.biz) if (z.boss === q.id && z.poi !== q.at) z.boss = 0;
     } else if (q && cmd.act === 'proc') {
@@ -1364,15 +1409,18 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       break;
     }
     case 'pitchCraft':
+    case 'pitchSoft':
     case 'pitchHandy': {
-      const trade = cmd.act === 'pitchCraft' ? 'craft' : 'handy';
+      const trade = cmd.act === 'pitchCraft' ? 'craft' : cmd.act === 'pitchSoft' ? 'soft' : 'handy';
+      if (trade === 'soft' && !s.laptop) break;
       labor(s, city, 120, trade, bal, ev);
-      const got = pitch(s.tr, trade, monthOf(s.eco, bal), clientsOf(city), monthRng(s.seed, 1000 + s.tr.nextGig + (s.tr.pitch[trade] ?? 0)), bal);
-      toast(trade === 'craft' ? `売り込んだ。今月の枠が ${got}個 増えた` : got ? `チラシを置いた。話が ${got}件 届いた` : 'チラシを置いた。まだ返事がない（もう1回で届きそう）', got ? 'good' : '');
+      s.tr.pc = s.laptop;
+      const got = pitch(s.tr, trade, monthOf(s.eco, bal), clientsOf(city), monthRng(s.seed, 1000 + s.tr.nextGig + (s.tr.pitch[trade] ?? 0)), bal, city.home.id);
+      toast(trade === 'craft' ? `売り込んだ。今月の枠が ${got}個 増えた` : got ? `${trade === 'soft' ? '売り込んだ' : 'チラシを置いた'}。話が ${got}件 届いた` : `${trade === 'soft' ? '売り込んだ' : 'チラシを置いた'}。まだ返事がない（もう1回で届きそう）`, got ? 'good' : '');
       break;
     }
     case 'gig': {
-      const g = s.tr.gigs.find((x) => x.taken && x.poi === p.id);
+      const g = s.tr.gigs.find((x) => x.taken && x.poi === p.id && bal.jobs[x.job].kind === 'visit');
       if (!g) break;
       const job = bal.jobs[g.job];
       const know = s.eco.know.handy ?? 0;
@@ -1395,9 +1443,71 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       break;
     case 'devSmall':
     case 'devMid':
-      s.tr.proj = { job: cmd.act === 'devSmall' ? 'softSmall' : 'softMid', hours: 0, out: false };
-      toast('作り始めた');
+    case 'devTool':
+    case 'devBig': {
+      const id = DEV_START.find((x) => x[1] === cmd.act)![0];
+      if (s.tr.proj || !s.laptop || fameOf(s.tr, 'soft') < bal.jobs[id].fame) break;
+      s.tr.proj = { job: id, hours: 0, out: false, q: startQ(s.eco.know.soft ?? 0, bal), hype: 0 };
+      toast((s.tr.fans ?? 0) >= 1 ? `作り始めた。前の作品を買った ${Math.round(s.tr.fans ?? 0)}人が待っている` : '作り始めた');
       break;
+    }
+    case 'fix': {
+      const pj = s.tr.proj;
+      if (!pj || pj.hours <= 0 || (pj.q ?? 50) >= 100) break;
+      labor(s, city, bal.soft.fixHours * 60 * slow, 'soft', bal, ev);
+      pj.q = Math.min(100, (pj.q ?? 50) + bal.soft.fixGain + (good ? bal.self.handGood : 0));
+      toast(`不具合を直した。品質 ${pj.q}`, 'good');
+      break;
+    }
+    case 'promo': {
+      const pj = s.tr.proj;
+      if (!pj || (pj.hype ?? 0) >= bal.soft.promoMax) break;
+      labor(s, city, bal.soft.promoHours * 60, 'soft', bal, ev);
+      pj.hype = Math.min(bal.soft.promoMax, (pj.hype ?? 0) + bal.soft.promoGain);
+      toast(`宣伝した。期待 ${pj.hype}%`, 'good');
+      break;
+    }
+    case 'demo': {
+      const pj = s.tr.proj;
+      if (!pj || pj.demo || pj.hours < devHours(bal.jobs[pj.job], bal) * bal.soft.demoAt) break;
+      labor(s, city, bal.soft.demoHours * 60, 'soft', bal, ev);
+      pj.demo = true;
+      pj.hype = (pj.hype ?? 0) + bal.soft.demoHype;
+      s.tr.fame.soft = Math.min(100, fameOf(s.tr, 'soft') + 1);
+      toast(`体験版を出した。期待 ${pj.hype}%・知名度 +1`, 'good');
+      break;
+    }
+    case 'devUpdate': {
+      const t = s.tr.titles.filter((x) => (x.upd ?? 0) < bal.soft.updMax).sort((a, b2) => b2.month - a.month)[0];
+      if (!t) break;
+      labor(s, city, bal.soft.updHours * 60, 'soft', bal, ev);
+      t.upd = (t.upd ?? 0) + 1;
+      toast(`${bal.jobs[t.job].name}を直した。今月の見込み ${unitsAt(bal.jobs[t.job], t, monthOf(s.eco, bal), bal.soft.saleBoost)}本`, 'good');
+      break;
+    }
+    case 'devSale': {
+      const mo = monthOf(s.eco, bal);
+      const t = s.tr.titles.filter((x) => x.sale === undefined && x.month < mo).sort((a, b2) => b2.month - a.month)[0];
+      if (!t) break;
+      t.sale = mo;
+      toast(`${bal.jobs[t.job].name}のセールを始めた。今月 ${unitsAt(bal.jobs[t.job], t, mo, bal.soft.saleBoost)}本の見込み`, 'good');
+      break;
+    }
+    case 'deskGig': {
+      const g = s.tr.gigs.find((x) => x.taken && bal.jobs[x.job].kind === 'desk');
+      if (!g || !s.laptop) break;
+      const job = bal.jobs[g.job];
+      const know = s.eco.know.soft ?? 0;
+      labor(s, city, workMins(job, know, s.tr, s.eco.fatigue) * slow, 'soft', bal, ev);
+      s.tr.gigs = s.tr.gigs.filter((x) => x !== g);
+      record(s.tr, g.job, 1, quality(know, true, false) + (good ? bal.self.handGood : 0));
+      s.tr.recv.push({ amount: job.price, due: monthOf(s.eco, bal) + 1, what: '開発の仕事の代金' }); // 会社との取引は、月末に締めて翌月末に入る
+      s.eco.m.sales += job.price;
+      s.earned += job.price;
+      toast(`開発の仕事を納めた。${yen(job.price)}（入金は翌月末）`, 'good');
+      ev.push({ type: 'sfx', name: 'coin' });
+      break;
+    }
     case 'devOut':
       if (s.tr.proj && payTool(s, m.devOut)) {
         s.tr.proj.out = true;
@@ -1412,13 +1522,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const know = s.eco.know.soft ?? 0;
       labor(s, city, 240 * slow, 'soft', bal, ev);
       pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
-      if (pj.hours >= devHours(job, bal)) {
-        const first = firstUnits(job, fameOf(s.tr, 'soft'), pj.out, bal.time.quotaScale);
-        s.tr.titles.push({ job: pj.job, month: monthOf(s.eco, bal), first });
-        s.tr.proj = null;
-        toast(`${job.name}を発売した。今月の見込み ${first}本（入金は翌月末）`, 'good');
-        ev.push({ type: 'sfx', name: 'ok' });
-      }
+      if (pj.hours >= devHours(job, bal)) release(s, bal, ev);
       break;
     }
     case 'deal': {
@@ -1450,6 +1554,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'laptop':
       if (pay(s, m.laptop, false)) {
         s.laptop = true;
+        s.tr.pc = true;
         toast('ノートPCを買った');
       }
       break;
