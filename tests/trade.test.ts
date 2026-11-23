@@ -215,3 +215,50 @@ describe('契約型：点の高い会社が受注する（運は入らない）'
   });
 });
 
+
+describe('許認可の要る契約（建設・運送・警備）と入札', () => {
+  const firms = [3, 4, 5];
+  const r = (seed = 3) => {
+    let x = seed;
+    return () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296;
+  };
+  it('許可を持っている種類の話だけが届く。入札は、信用のランクBと、同じ種類の実績3か月から', () => {
+    const tr = newTr();
+    offerBids(tr, firms, r(), b);
+    expect(tr.bids).toEqual([]);
+    offerBids(tr, firms, r(), b, ['guard'], 2);
+    expect(tr.bids.map((q) => [q.kind, q.crew, q.big])).toEqual([['guard', b.pro.guardCrew, false]]);
+    tr.pro.guard = b.pro.bigJobs;
+    offerBids(tr, firms, r(), b, ['guard'], 2);
+    expect(tr.bids.length).toBe(1); // ランクCでは入札に出られない
+    offerBids(tr, firms, r(), b, ['guard', 'build'], b.pro.bigRank);
+    expect(tr.bids.map((q) => [q.kind, q.big])).toEqual([['build', false], ['guard', false], ['guard', true]]);
+    const big = tr.bids[2];
+    expect(big.crew).toBe(b.pro.guardCrew * 2);
+    expect(big.value).toBeGreaterThan(b.pro.guardValue * b.pro.big * 0.79);
+  });
+  it('人を回す契約は、回した人が足りていれば代金が入り、実績が積もる。足りないと入らず、関係が下がる', () => {
+    const tr = newTr();
+    tr.rel[3] = 50;
+    tr.deals.push({ poi: 3, value: 90000, visits: 1, left: 2, done: 0, kind: 'guard', crew: 2 });
+    let notes = settleDeals(tr, 0, 2, b, 2);
+    expect(notes).toEqual([]);
+    expect(tr.recv).toEqual([{ amount: 90000, due: 1, what: '契約の代金' }]);
+    expect(tr.pro.guard).toBe(1);
+    notes = settleDeals(tr, 1, 2, b, 1);
+    expect(notes[0]).toContain('人が足りなかった');
+    expect(tr.recv.length).toBe(1);
+    expect(tr.rel[3]).toBe(50 - b.deal.relLoss);
+    expect(tr.deals).toEqual([]);
+  });
+  it('点の「納期」は、空いている人が要る人数に足りているかで決まる', () => {
+    const tr = newTr();
+    const bid = { id: 1, poi: 3, kind: 'build' as const, crew: 3, value: 180000, visits: 1, months: 2, quote: 1, calls: 0, heavy: -1, light: -1, rival: 50 };
+    expect(scoreParts(tr, bid, 2, b, 2)[4]).toBe(0);
+    expect(scoreParts(tr, bid, 2, b, 3)[4]).toBe(10);
+    tr.deals.push({ poi: 4, value: 1, visits: 1, left: 1, done: 0, kind: 'guard', crew: 2 });
+    expect(scoreParts(tr, bid, 2, b, 4)[4]).toBe(0); // 2人は、ほかの契約に取られている
+    tr.pro.build = 5;
+    expect(scoreParts(tr, bid, 2, b, 5)[1]).toBe(20); // 実績は、同じ種類の仕事で数える
+  });
+});

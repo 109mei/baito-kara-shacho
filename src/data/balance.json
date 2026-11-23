@@ -187,7 +187,8 @@
     "capMonths": 60,
     "planGood": 10,
     "planBad": -20,
-    "restartCash": 100000
+    "restartCash": 100000,
+    "bankrupt": -400
   },
   "loan": {
     "rateD": 0.12,
@@ -451,5 +452,33 @@
     "fuel": 3000,
     "near": 450,
     "boost": 1.1
+  },
+  "corp": {
+    "fee": 250000,
+    "capital": 500000,
+    "salary": 30000,
+    "step": 10000,
+    "unit": 100000
+  },
+  "pro": {
+    "buildValue": 180000,
+    "buildCrew": 3,
+    "buildMonths": 2,
+    "buildFund": 5000000,
+    "buildSkill": 70,
+    "haulValue": 130000,
+    "haulCrew": 2,
+    "haulMonths": 3,
+    "trucks": 5,
+    "truck": 400000,
+    "haulSkill": 60,
+    "guardValue": 90000,
+    "guardCrew": 2,
+    "guardMonths": 6,
+    "guardFee": 80000,
+    "guardHours": 16,
+    "big": 3,
+    "bigJobs": 3,
+    "bigRank": 3
   }
 }

@@ -2,9 +2,9 @@
 // ルール本体は 1/30 秒の決まった刻みで進める。画面の数字は 1 秒に 10 回だけ更新する。
 import { create } from 'zustand';
 import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
-import { dateOf, monthBills, rankOf, type MonthRec } from '../core/eco';
+import { dateOf, rankOf, type MonthRec } from '../core/eco';
 import { blocked } from '../core/rooms';
-import { apply, createGame, dayOf, fromSave, hourOf, monthLiving, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState } from '../core/sim';
+import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, shortOf } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -30,6 +30,7 @@ export interface Hud {
   mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
   date: string; credit: number; grade: string; // 暦、信用の点とランク
   short: number; // 月末の払いに足りない額（足りていれば 0）
+  corp: number | null; corpShort: number; // 法人：会社の口座と、会社の月末の払いに足りない額
   gigs: number; // 届いていて、まだ受けていない話の数
   aim: boolean; // 撃てる相手が、届く所にいる
   caught: number; // 捕まるまでの度合い（0〜1）
@@ -48,12 +49,13 @@ interface Store {
   down: number | null; // 倒されたとき：失った額
   hurt: number; // 撃たれた回数（画面のふちを赤く光らせる合図）
   report: MonthRec | null; // 月次レポート（月末の締め）
-  broke: boolean; // 倒産した
+  broke: false | 'me' | 'corp'; // 倒産した（自分／会社）
   loan: number | null; // 融資の相談をしている銀行
   hub: boolean; // 「仕事と商売」の札
   gig: (id: number, take: boolean) => void;
   staff: (id: number, act: Extract<Cmd, { type: 'staff' }>['act'], k?: 0 | 1 | 2) => void;
   bid: (id: number, act: Extract<Cmd, { type: 'bid' }>['act']) => void;
+  corp: (act: Extract<Cmd, { type: 'corp' }>['act']) => void;
   line: (act: Extract<Cmd, { type: 'line' }>['act']) => void;
   wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
@@ -98,7 +100,7 @@ function goalOf(s: GameState): [string, PoiKind] {
   if (s.biz.length === 0 && s.cash < b.biz.stall && s.dirty >= 50000) return ['質屋で お金を洗う', 'pawn'];
   if (s.biz.length === 0 && !s.firm.permits.includes('food') && s.cash >= b.biz.stall) return ['窓口で 食品衛生の講習', 'office'];
   if (s.biz.length === 0) return [`屋台を出す ¥${b.biz.stall.toLocaleString('ja-JP')}`, s.cash >= b.biz.stall ? 'lot' : 'conbini'];
-  if (s.biz.length < 3) return [`社長まで 事業 ${s.biz.length}/3`, 'lot'];
+  if (!s.eco.corp) return [`法人にして 社長になる ¥${(b.corp.fee + b.corp.capital).toLocaleString('ja-JP')}`, 'office'];
   if (s.biz.length < 6) return [`大社長まで 事業 ${s.biz.length}/6`, 'lot'];
   const mine = s.turf.filter((t) => t === -1).length;
   if (mine < 6) return [`街を支配する 縄張り ${mine}/6`, 'gang'];
@@ -130,7 +132,7 @@ function snapshot(): Hud {
     goal: goalOf(s)[0], goalKind: goalOf(s)[1],
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
     date: ((d) => `${d.year}年${d.month}月${d.day}日`)(dateOf(s.eco, b)), credit: Math.round(s.eco.credit), grade: rankOf(s.eco.credit),
-    short: Math.max(0, monthBills(s.eco, monthLiving(s, b), b) - s.cash - Math.max(0, s.bank)),
+    short: shortOf(s, b).me, corp: s.eco.corp ? s.eco.corp.bank : null, corpShort: shortOf(s, b).corp,
     gigs: s.tr.gigs.filter((g) => !g.taken).length,
     mates: net.online ? net.mates.size : -1,
     aim: s.gun && !s.inside && (s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < b.gang.gunRange) || (net.online && !!net.nearest(s.x, s.y, b.gang.gunRange))),
@@ -187,7 +189,7 @@ export const useGame = create<Store>((set, get) => {
       } else if (e.type === 'month') {
         set({ report: e.rec, panel: null, loan: null });
         sfx.month(e.rec.unpaid.length === 0);
-      } else if (e.type === 'bankrupt') set({ broke: true });
+      } else if (e.type === 'bankrupt') set({ broke: e.corp ? 'corp' : 'me' });
       else if (e.type === 'skip') set({ fade: get().fade + 1 });
     }
   };
@@ -265,6 +267,7 @@ export const useGame = create<Store>((set, get) => {
     gig: (id, take) => get().send({ type: 'gig', id, take }),
     staff: (id, act, k) => get().send({ type: 'staff', id, act, k }),
     bid: (id, act) => get().send({ type: 'bid', id, act }),
+    corp: (act) => get().send({ type: 'corp', act }),
     line: (act) => get().send({ type: 'line', act }),
     wayTo: (poi) => {
       const p = city.pois[poi];

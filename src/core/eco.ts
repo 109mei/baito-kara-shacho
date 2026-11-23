@@ -2,8 +2,10 @@
 // 仕様書の 2章（時間）・4章（お金）・5章（信用）を、いまの街の時間（1か月＝数日）に合わせて入れた物。
 import type { Balance } from '../data/schema';
 
-export interface Loan { id: number; kind: 'start' | 'bank'; amount: number; left: number; pay: number; rate: number; n: number } // n＝残りの回数
-export interface Bill { what: string; amount: number }
+export interface Loan { id: number; kind: 'start' | 'bank'; amount: number; left: number; pay: number; rate: number; n: number; corp?: boolean } // n＝残りの回数。corp＝会社の借入（自分が保証人）
+export interface Bill { what: string; amount: number; corp?: boolean }
+// 法人にしたあとの会社：会社の口座と、自分へ毎月移す給料（役員報酬）
+export interface Corp { bank: number; salary: number }
 // 月ごとの記録（月次レポートにも使う）
 export interface MonthRec {
   month: number; // 始めてからの月（0 から）
@@ -11,6 +13,7 @@ export interface MonthRec {
   profit: number; // 商売のもうけ
   repay: number; living: number; tax: number; // 返済、生活費、納めた税
   money: number; // 締めたあとの現金＋預金
+  corp?: number; salary?: number; // 法人：締めたあとの会社の口座と、自分へ移した給料
   credit: number; creditDiff: number;
   unpaid: Bill[]; // 払えずに、来月へ回した物
   notes: string[];
@@ -21,7 +24,8 @@ export interface Eco {
   cap: number; capUntil: number; // 信用の上限と、それが続く月（倒産・逮捕のあと）
   loans: Loan[]; nextLoan: number;
   owed: Bill[]; // 待ってもらっている支払い。次の月末にも払えないと倒産
-  tax: { amount: number; due: number }[]; // 決まった税と、納める月
+  tax: { amount: number; due: number; corp?: boolean }[]; // 決まった税と、納める月
+  corp: Corp | null; // 法人にしたあとの会社（null＝個人事業）
   yearProfit: number; // 今年のもうけ（税の計算に使う）
   m: { sales: number; cost: number }; // 今月の売上と、原価・経費
   red: number; // 赤字が続いた月の数
@@ -41,7 +45,7 @@ export interface Eco {
 }
 
 export const newEco = (bal: Balance): Eco => ({
-  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hide: 0, mix: false, mixed: 0, yearSales: 0, hist: [],
+  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], corp: null, yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hide: 0, mix: false, mixed: 0, yearSales: 0, hist: [],
 });
 
 // 景気：好況 → 後退 → 不況 → 回復 の順に回る。客と注文、人の集まりやすさ、物件の値段が変わる
@@ -159,58 +163,105 @@ export function takeLoan(e: Eco, kind: 'start' | 'bank', amount: number, own: nu
 export const monthBills = (e: Eco, living: number, bal: Balance) =>
   e.owed.reduce((a, b) => a + b.amount, 0) + e.loans.reduce((a, l) => a + Math.min(l.pay, l.left + Math.round((l.left * l.rate) / 12)), 0) + living + e.tax.filter((t) => t.due <= monthOf(e, bal)).reduce((a, t) => a + t.amount, 0);
 
+// 月末に出ていくお金の見込みを、自分の分と会社の分に分ける（足りない知らせに使う）
+export function billsOf(e: Eco, living: number, wages: number, rent: number, bal: Balance): { me: number; corp: number; salary: number } {
+  const co = !!e.corp;
+  const month = monthOf(e, bal);
+  let me = living;
+  let corp = 0;
+  const add = (isCorp: boolean | undefined, n: number) => (co && isCorp ? (corp += n) : (me += n));
+  for (const b of e.owed) add(b.corp, b.amount);
+  for (const l of e.loans) add(l.corp, Math.min(l.pay, l.left + Math.round((l.left * l.rate) / 12)));
+  for (const t of e.tax) if (t.due <= month) add(t.corp, t.amount);
+  add(true, wages + rent);
+  return { me, corp, salary: e.corp?.salary ?? 0 };
+}
+
 // ---- 月末の締め
 export interface CloseIn { cash: number; bank: number; living: number; wages: number; rent: number; hasBiz: boolean; audit?: number } // audit＝税務調査のくじ（0〜1。年末だけ使う）
-export interface CloseOut { cash: number; bank: number; rec: MonthRec; bankrupt: boolean; caught: number } // caught＝税務調査で見つかった、混ぜたお金の額
+export interface CloseOut { cash: number; bank: number; rec: MonthRec; bankrupt: boolean; corpBankrupt: boolean; caught: number } // caught＝税務調査で見つかった、混ぜたお金の額
 // 税務調査の見込み：隠すと 10% + 隠した割合 × 20%。売上に混ぜると、混ぜた額 ÷ 売上 × 50% が足される
 export const auditChance = (e: Eco, bal: Balance) => (e.hide > 0 ? bal.law.auditBase + e.hide * bal.law.auditHide : 0) + (e.yearSales > 0 ? (e.mixed / e.yearSales) * bal.law.auditMix : 0);
 // 払う順：待ってもらっていた分 → 給料 → 家賃と光熱費 → 返済と利息 → 生活費 → 税。現金、預金の順に引く。
 // 払えない物は来月へ回る（3% 上乗せ・信用が下がる）。回した物が次の月末にも払えないと、倒産。
+// 法人にしたあとは、商売の支払いは会社の口座から出る。自分には、給料（役員報酬）として移す。
+// 会社が倒産しても、自分の現金と預金は残る。自分が保証人になった会社の借入は、自分に残る。
 export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
   const month = monthOf(e, bal) - 1; // いま締める月
   const C = bal.credit;
+  const co = e.corp;
   let cash = w.cash;
   let bank = w.bank;
+  let cb = co ? co.bank : 0;
   let bankrupt = false;
+  let corpBankrupt = false;
   const before = e.credit;
   const unpaid: Bill[] = [];
   const notes: string[] = [];
-  const payBill = (what: string, amount: number, wasLate: boolean) => {
+  const payBill = (what: string, amount: number, wasLate: boolean, fromCorp = false) => {
     if (amount <= 0) return true;
-    const a = Math.min(cash, amount);
-    cash -= a;
-    const b2 = Math.min(Math.max(0, bank), amount - a);
-    bank -= b2;
-    const rest = amount - a - b2;
+    let rest = amount;
+    if (fromCorp && co) {
+      if (corpBankrupt) return false; // つぶれた会社の支払いは、会社といっしょに消える
+      const a = Math.min(Math.max(0, cb), rest);
+      cb -= a;
+      rest -= a;
+    } else {
+      const a = Math.min(cash, rest);
+      cash -= a;
+      const b2 = Math.min(Math.max(0, bank), rest - a);
+      bank -= b2;
+      rest -= a + b2;
+    }
     if (rest <= 0) return true;
-    if (wasLate) bankrupt = true;
-    else unpaid.push({ what, amount: Math.round(rest * (1 + bal.loan.deferFee)) });
+    if (wasLate) {
+      if (fromCorp && co) corpBankrupt = true;
+      else bankrupt = true;
+    } else unpaid.push({ what, amount: Math.round(rest * (1 + bal.loan.deferFee)), ...(fromCorp && co ? { corp: true } : {}) });
     return false;
   };
-  for (const b of e.owed) payBill(b.what, b.amount, true);
-  payBill('給料', w.wages, false);
-  payBill('家賃と光熱費', w.rent, false);
+  for (const b of e.owed) payBill(b.what, b.amount, true, !!b.corp);
+  payBill('給料', w.wages, false, true);
+  payBill('家賃と光熱費', w.rent, false, true);
   let repay = 0;
   for (const l of e.loans) {
     const interest = Math.round((l.left * l.rate) / 12);
     const due = l.n <= 1 ? l.left + interest : Math.min(l.pay, l.left + interest); // 最後の回で、端数まで払い切る
+    if (l.corp && corpBankrupt) continue; // 会社がつぶれた月は、会社の借入は払われない。来月から自分が払う
     l.n -= 1;
     l.left = Math.max(0, l.left + interest - due);
     repay += due;
-    payBill('返済', due, false);
+    payBill('返済', due, false, !!l.corp);
   }
   e.loans = e.loans.filter((l) => l.left > 0);
+  // 役員報酬：会社の口座に残っている分だけ、自分の預金へ移す（会社の経費になる）
+  let salary = 0;
+  if (co && !corpBankrupt) {
+    salary = Math.min(co.salary, Math.max(0, cb));
+    cb -= salary;
+    bank += salary;
+  }
   payBill('生活費', w.living, false);
   let tax = 0;
   for (const t of e.tax.filter((x) => x.due <= month)) {
     tax += t.amount;
-    if (payBill('税', t.amount, false)) addCredit(e, C.taxPaid, bal);
+    if (payBill('税', t.amount, false, !!t.corp)) addCredit(e, C.taxPaid, bal);
   }
   e.tax = e.tax.filter((x) => x.due > month);
   e.owed = bankrupt ? [] : unpaid;
+  if (corpBankrupt && !bankrupt) {
+    // 会社の倒産：会社の資産と信用を失う。会社の分の支払いは消え、保証人になった借入だけが自分に残る
+    e.owed = unpaid.filter((b) => !b.corp);
+    for (const l of e.loans) delete l.corp;
+    e.tax = e.tax.filter((t) => !t.corp);
+    e.corp = null;
+    addCredit(e, C.bankrupt, bal);
+    capCredit(e, C.bankruptCap, bal);
+    notes.push('会社が倒産した。自分の現金と預金は残る。保証人になった借入は、自分で返す');
+  }
 
   // 商売のもうけ（給料と家賃は商売の経費）
-  const profit = e.m.sales - e.m.cost - w.wages - w.rent;
+  const profit = e.m.sales - e.m.cost - w.wages - w.rent - salary;
   e.yearProfit += profit;
   e.yearSales += e.m.sales;
   let caught = 0;
@@ -232,13 +283,13 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
       }
     }
   }
-  if (!unpaid.length && !bankrupt) addCredit(e, C.paid, bal);
+  if (!unpaid.length && !bankrupt && !corpBankrupt) addCredit(e, C.paid, bal);
   else addCredit(e, C.late * unpaid.length, bal);
 
   // 年末：決算。税は 2か月後に納める。物の値段は年に 2% 上がる
   const mInYear = (month % bal.time.monthsPerYear) + 1;
   if (mInYear === bal.time.monthsPerYear) {
-    const full = Math.round(Math.max(0, e.yearProfit) * bal.tax.person);
+    const full = Math.round(Math.max(0, e.yearProfit) * (co ? bal.tax.corp : bal.tax.person)); // 個人事業は 20%、法人は 30%
     let t = Math.round(full * (1 - e.hide)); // 少なく申告すると、そのぶん税が減る
     // 税務調査：見つかると、隠した税の 1.35倍 を払い、信用が下がる。混ぜたお金は没収される
     const chance = auditChance(e, bal);
@@ -252,18 +303,19 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
     } else if (e.hide > 0) notes.push(`少なく申告して、税が ${yen(full - t)} 減った（調査の見込みは ${Math.round(chance * 100)}%だった）`);
     e.mixed = 0;
     e.yearSales = 0;
-    if (t > 0) e.tax.push({ amount: t, due: month + bal.tax.delayMonths });
+    if (t > 0) e.tax.push({ amount: t, due: month + bal.tax.delayMonths, ...(e.corp ? { corp: true } : {}) });
     if (e.yearProfit > 0) addCredit(e, C.goodYear, bal);
     notes.push(`決算：今年のもうけ ${yen(e.yearProfit)}${t > 0 ? `、税 ${yen(t)}（${bal.tax.delayMonths}か月後に納める）` : ''}`);
     e.closings += 1;
     e.yearProfit = 0;
     e.infl = Math.round(e.infl * 1.02 * 1000) / 1000;
   } else if (mInYear > bal.time.monthsPerYear - bal.tax.delayMonths && e.yearProfit > 0) {
-    notes.push(`税の見込み ${yen(e.yearProfit * bal.tax.person)}（年末の決算のあと）`);
+    notes.push(`税の見込み ${yen(e.yearProfit * (co ? bal.tax.corp : bal.tax.person))}（年末の決算のあと）`);
   }
-  const rec: MonthRec = { month, sales: e.m.sales, cost: e.m.cost, wage: w.wages, rent: w.rent, profit, repay, living: w.living, tax, money: cash + Math.max(0, bank), credit: e.credit, creditDiff: e.credit - before, unpaid, notes };
+  const rec: MonthRec = { month, sales: e.m.sales, cost: e.m.cost, wage: w.wages, rent: w.rent, profit, repay, living: w.living, tax, money: cash + Math.max(0, bank), credit: e.credit, creditDiff: e.credit - before, unpaid, notes, ...(co ? { corp: corpBankrupt ? 0 : cb, salary } : {}) };
   e.hist.push(rec);
   if (e.hist.length > 36) e.hist.shift();
   e.m = { sales: 0, cost: 0 };
-  return { cash, bank, rec, bankrupt, caught };
+  if (e.corp) e.corp.bank = cb;
+  return { cash, bank, rec, bankrupt, corpBankrupt, caught };
 }

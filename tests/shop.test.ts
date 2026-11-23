@@ -331,3 +331,77 @@ describe('路線型（バス）', () => {
   });
 });
 
+
+describe('法人にする', () => {
+  it('街の中で：売上が出てから窓口で法人にすると、商売のお金は会社の口座で動き、月末に給料が自分へ移る', () => {
+    const s = createGame(7, city, b);
+    s.cash = 2000000;
+    s.clock = 10 * 60;
+    expect(poiActions(s, city, kind('office'), b).find((a) => a.id === 'incorp')!.why).toBe('商売の売上が出てから');
+    go(s, kind('office'), 'lecture');
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    go(s, lot, 'stall');
+    go(s, lot, 'tend');
+    expect(s.eco.m.sales).toBeGreaterThan(0);
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    const cash = s.cash + s.bank;
+    go(s, kind('office'), 'incorp');
+    expect(s.eco.corp).toEqual({ bank: b.corp.capital, salary: b.corp.salary });
+    expect(s.cash + s.bank).toBe(cash - b.corp.fee - b.corp.capital);
+    // 店に立った売上は、会社の口座に入る。自分の現金は増えない
+    const mine = s.cash;
+    go(s, lot, 'tend');
+    expect(s.cash).toBe(mine);
+    expect(s.eco.corp!.bank).toBeGreaterThan(b.corp.capital);
+    // 給料を上げ下げできる。自分のお金を会社に入れられる
+    apply(s, city, { type: 'corp', act: 'payUp' }, b);
+    expect(s.eco.corp!.salary).toBe(b.corp.salary + b.corp.step);
+    const cb = s.eco.corp!.bank;
+    apply(s, city, { type: 'corp', act: 'in' }, b);
+    expect(s.eco.corp!.bank).toBe(cb + b.corp.unit);
+    // 月末：会社の口座から家賃が出て、給料が自分の預金へ入る
+    const evs = monthEnd(s);
+    const rec = (evs.find((e) => e.type === 'month') as { rec: { salary?: number; corp?: number; living: number } }).rec;
+    expect(rec.salary).toBe(b.corp.salary + b.corp.step);
+    expect(rec.corp).toBe(s.eco.corp!.bank);
+    // 保存して読み込んでも、会社は残る
+    const t = fromSave(JSON.parse(JSON.stringify(toSave(s))), city, b);
+    expect(t.eco.corp).toEqual(s.eco.corp);
+  });
+});
+
+describe('許認可（建設・運送・警備）', () => {
+  it('窓口で、足りない条件が「あとどれだけ」で見える。そろうと許可が出て、人を契約に回せる', () => {
+    const s = createGame(7, city, b);
+    s.cash = 300000;
+    s.clock = 10 * 60;
+    const act = (k: string) => poiActions(s, city, kind('office'), b).find((a) => a.id === `permit_${k}`)!;
+    expect(act('build').ok).toBe(false);
+    expect(act('build').sub).toContain('技術者');
+    expect(act('build').sub).toContain('決算');
+    expect(act('guard').ok).toBe(true);
+    // 警備：講習を受けると許可が出る。前科があると取れない
+    s.eco.cap = b.credit.arrestCap;
+    s.eco.capUntil = 99;
+    expect(act('guard').ok).toBe(false);
+    s.eco.capUntil = 0;
+    go(s, kind('office'), 'permit_guard');
+    expect(s.firm.permits).toContain('guard');
+    expect(s.cash).toBe(300000 - b.pro.guardFee);
+    // 建設：技術者・決算・資金がそろうと取れる
+    s.firm.staff.push({ ...makeStaff(1, rng(9), b), skill: 75 }, { ...makeStaff(2, rng(8), b), skill: 40 });
+    s.eco.closings = 1;
+    s.bank = b.pro.buildFund;
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    expect(act('build').ok).toBe(true);
+    go(s, kind('office'), 'permit_build');
+    expect(s.firm.permits).toContain('build');
+    expect(s.bank).toBe(b.pro.buildFund); // 資金は見せるだけで、取られない
+    // 人の持ち場を「契約」にできる
+    apply(s, city, { type: 'staff', id: 1, act: 'assign' }, b);
+    expect(s.firm.staff[0].at).toBe(-2);
+    // 月が変わると、許可のある種類の話が届く
+    monthEnd(s);
+    expect(s.tr.bids.map((q) => q.kind).sort()).toEqual(['build', 'guard']);
+  });
+});

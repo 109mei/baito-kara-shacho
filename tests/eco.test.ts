@@ -8,7 +8,7 @@ const city = makeCity(20261123, b);
 const dpm = b.time.daysPerMonth;
 // 月を n 回締める（商売なし・給料なし）
 const months = (e: ReturnType<typeof newEco>, n: number, w: Partial<Parameters<typeof closeMonth>[1]> = {}) => {
-  let out: ReturnType<typeof closeMonth> = { cash: w.cash ?? 1e9, bank: 0, bankrupt: false, caught: 0, rec: null as unknown as ReturnType<typeof closeMonth>['rec'] };
+  let out: ReturnType<typeof closeMonth> = { cash: w.cash ?? 1e9, bank: 0, bankrupt: false, corpBankrupt: false, caught: 0, rec: null as unknown as ReturnType<typeof closeMonth>['rec'] };
   for (let i = 0; i < n; i++) {
     e.days += dpm;
     out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: false, ...w, ...(i > 0 ? { cash: out.cash } : {}) }, b);
@@ -245,3 +245,72 @@ describe('裏の道の残り（税・自首・弁護士・下見）', () => {
   });
 });
 
+
+describe('法人（会社の口座・役員報酬・会社の倒産）', () => {
+  const corpEco = (bank: number, salary: number) => {
+    const e = newEco(b);
+    e.corp = { bank, salary };
+    return e;
+  };
+  it('商売の支払いは会社の口座から出て、自分には給料として移る。給料は会社の経費になる', () => {
+    const e = corpEco(500000, 30000);
+    e.days += dpm;
+    e.m = { sales: 200000, cost: 50000 };
+    const out = closeMonth(e, { cash: 0, bank: 20000, living: 10000, wages: 40000, rent: 9000, hasBiz: true }, b);
+    expect(e.corp!.bank).toBe(500000 - 40000 - 9000 - 30000);
+    expect(out.bank).toBe(20000 + 30000 - 10000); // 給料が入り、生活費が出る
+    expect(out.rec.salary).toBe(30000);
+    expect(out.rec.profit).toBe(200000 - 50000 - 40000 - 9000 - 30000);
+    expect(out.rec.corp).toBe(e.corp!.bank);
+    expect(out.rec.unpaid).toEqual([]);
+  });
+  it('会社の口座が足りないと、給料は出せる分だけ。自分の現金は、会社の払いに使われない', () => {
+    const e = corpEco(45000, 30000);
+    e.days += dpm;
+    const out = closeMonth(e, { cash: 900000, bank: 0, living: 0, wages: 40000, rent: 9000, hasBiz: true }, b);
+    expect(out.cash).toBe(900000);
+    expect(out.rec.salary).toBe(0);
+    expect(out.rec.unpaid).toEqual([{ what: '家賃と光熱費', amount: Math.round(4000 * (1 + b.loan.deferFee)), corp: true }]);
+  });
+  it('法人の税は利益の30%、個人事業は20%。会社の税は会社の口座から納める', () => {
+    const run = (corp: boolean) => {
+      const e = corp ? corpEco(5000000, 0) : newEco(b);
+      let out = { cash: 0, bank: 5000000 };
+      for (let i = 0; i < b.time.monthsPerYear + b.tax.delayMonths; i++) {
+        e.days += dpm;
+        if (i < b.time.monthsPerYear) e.m = { sales: 100000, cost: 0 };
+        out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: true }, b);
+      }
+      return { e, out };
+    };
+    const me = run(false);
+    const co = run(true);
+    const profit = 100000 * b.time.monthsPerYear;
+    expect(5000000 - me.out.bank).toBe(profit * b.tax.person);
+    expect(co.out.bank).toBe(5000000); // 自分の預金は減らない
+    expect(5000000 - co.e.corp!.bank).toBe(profit * b.tax.corp);
+  });
+  it('会社の払いが2か月続けて払えないと、会社が倒産する。自分のお金は残り、保証人になった借入も残る', () => {
+    const e = corpEco(0, 30000);
+    e.loans.push({ id: 1, kind: 'bank', amount: 600000, left: 600000, pay: 20000, rate: 0.05, n: 36, corp: true });
+    e.credit = 700;
+    e.days += dpm;
+    let out = closeMonth(e, { cash: 300000, bank: 0, living: 0, wages: 50000, rent: 0, hasBiz: true }, b);
+    expect(out.corpBankrupt).toBe(false);
+    expect(e.owed.every((x) => x.corp)).toBe(true);
+    e.days += dpm;
+    out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 50000, rent: 0, hasBiz: true }, b);
+    expect(out.corpBankrupt).toBe(true);
+    expect(out.bankrupt).toBe(false);
+    expect(out.cash).toBe(300000);
+    expect(e.corp).toBeNull();
+    expect(e.owed).toEqual([]);
+    expect(e.loans.length).toBe(1);
+    expect(e.loans[0].corp).toBeUndefined();
+    expect(e.credit).toBeLessThanOrEqual(b.credit.bankruptCap);
+    // 次の月からは、残った借入を自分で返す
+    e.days += dpm;
+    out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: false }, b);
+    expect(out.cash).toBeLessThan(300000);
+  });
+});

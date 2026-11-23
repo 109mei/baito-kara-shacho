@@ -22,8 +22,9 @@ export interface Tr {
   jobs: number; // これまでにこなした便利屋の仕事の数（契約の「実績」）
   bids: Bid[]; deals: Deal[]; nextBid: number;
   rel: Record<number, number>; // 相手（場所）ごとの関係（0〜100）
+  pro: Record<string, number>; // 許認可の要る仕事（建設・運送・警備）を、やり終えた月の数（入札の「実績」）
 }
-export const newTr = (): Tr => ({ fame: {}, quota: {}, used: {}, mats: 0, stock: {}, gigs: [], nextGig: 1, pitch: {}, power: false, washer: false, proj: null, titles: [], recv: [], q: { sum: 0, n: 0 }, broken: 0, jobs: 0, bids: [], deals: [], nextBid: 1, rel: {} });
+export const newTr = (): Tr => ({ fame: {}, quota: {}, used: {}, mats: 0, stock: {}, gigs: [], nextGig: 1, pitch: {}, power: false, washer: false, proj: null, titles: [], recv: [], q: { sum: 0, n: 0 }, broken: 0, jobs: 0, bids: [], deals: [], nextBid: 1, rel: {}, pro: {} });
 
 export const fameOf = (tr: Tr, trade: string) => tr.fame[trade] ?? 0;
 // 今月の枠（ゆらぐ前）。仕様書 6章の表
@@ -135,59 +136,93 @@ export function endMonth(tr: Tr, month: number, bal: Balance): MonthEnd {
 export const TRADE_NAME: Record<string, string> = { craft: '手作りの品', handy: '便利屋', soft: '個人開発', food: '屋台・飲食', retail: '店', logi: '倉庫・運送', estate: '大家', build: '請負' };
 
 // ---- 契約型（仕様書 7章）：相手ごとに点をつけ、いちばん点の高い会社が受注する。運は入らない
+// 契約の種類：clean＝自分が通う仕事（便利屋の実績から）。build・haul・guard＝許認可が要り、人を回してこなす
+export type DealKind = 'clean' | 'build' | 'haul' | 'guard';
+export const PRO_KINDS = ['build', 'haul', 'guard'] as const;
+export const DEAL_NAME: Record<DealKind, string> = { clean: '定期の仕事', build: '建設', haul: '運送', guard: '警備' };
 export interface Bid {
   id: number; poi: number; // 相手（場所の番号）
+  kind?: DealKind; crew?: number; big?: boolean; // 種類、要る人数、入札（大きな仕事）か
   value: number; visits: number; months: number; // 月の代金、月に通う回数、続く月
   quote: number; // こちらの見積（相場を 1 として 0.9・1・1.1）
   calls: number; // 通った回数（3回通うと、相手が何を重く見るかが分かる）
   heavy: number; light: number; // 満点が 10 多い項目と、10 少ない項目（0 価格・1 実績・2 信用・3 関係・4 納期）
   rival: number; // いちばん強い競合の点
 }
-export interface Deal { poi: number; value: number; visits: number; left: number; done: number } // left＝残りの月、done＝今月 通った回数
+export interface Deal { poi: number; value: number; visits: number; left: number; done: number; kind?: DealKind; crew?: number } // left＝残りの月、done＝今月 通った回数
+// いま、人を回す契約に取られている人数
+export const crewUsed = (tr: Tr) => tr.deals.reduce((a, d) => a + (d.crew ?? 0), 0);
 export const SCORE_NAMES = ['価格', '実績', '信用', '関係', '納期'];
 const FULL = [30, 20, 20, 20, 10];
 // 点の内訳（[価格, 実績, 信用, 関係, 納期]）
-export function scoreParts(tr: Tr, bid: Bid, rankIdx: number, bal: Balance): number[] {
+export function scoreParts(tr: Tr, bid: Bid, rankIdx: number, bal: Balance, crew = 0): number[] {
+  const pro = bid.kind && bid.kind !== 'clean';
   const raw = [
     Math.min(1, 1 / bid.quote), // いちばん安い見積（競合は相場）が満点。高い分だけ減る
-    Math.min(1, (tr.jobs * 4) / 20), // 同じ種類の仕事 1件で 4点。5件で満点
+    Math.min(1, ((pro ? tr.pro[bid.kind!] ?? 0 : tr.jobs) * 4) / 20), // 同じ種類の仕事 1件で 4点。5件で満点
     rankIdx / 4, // E 0・D 5・C 10・B 15・A 20
     Math.min(1, (tr.rel[bid.poi] ?? 0) / 100), // 相手との関係 ÷ 5
-    tr.deals.length < bal.deal.maxDeals ? 1 : 0, // 手がいっぱいだと、納期に間に合わない
+    (pro ? crew - crewUsed(tr) >= (bid.crew ?? 0) : tr.deals.filter((d) => !d.crew).length < bal.deal.maxDeals) ? 1 : 0, // 手がいっぱいだと、納期に間に合わない
   ];
   return raw.map((r, i) => Math.round(r * (FULL[i] + (i === bid.heavy ? 10 : 0) - (i === bid.light ? 10 : 0)) * 10) / 10);
 }
-export const scoreOf = (tr: Tr, bid: Bid, rankIdx: number, bal: Balance) => Math.round(scoreParts(tr, bid, rankIdx, bal).reduce((a, v) => a + v, 0) * 10) / 10;
+export const scoreOf = (tr: Tr, bid: Bid, rankIdx: number, bal: Balance, crew = 0) => Math.round(scoreParts(tr, bid, rankIdx, bal, crew).reduce((a, v) => a + v, 0) * 10) / 10;
 // 月の初め：契約の話が届く（便利屋の実績が 3件 から）
-export function offerBids(tr: Tr, clients: number[], rnd: () => number, bal: Balance) {
+// 許認可を持っていると、その種類の話が月に1つ届く。信用のランク B 以上で、同じ種類を 3か月 やり終えていると、入札（3倍の仕事）にも出られる
+export function offerBids(tr: Tr, clients: number[], rnd: () => number, bal: Balance, permits: string[] = [], rankIdx = 0) {
   tr.bids = [];
-  if (tr.jobs < bal.deal.minJobs || !clients.length) return;
-  for (let k = 0; k < 2; k++) {
+  if (!clients.length) return;
+  for (let k = 0; k < 2 && tr.jobs >= bal.deal.minJobs; k++) {
     const heavy = Math.floor(rnd() * 5);
     tr.bids.push({ id: tr.nextBid++, poi: clients[Math.floor(rnd() * clients.length)], value: Math.round((bal.deal.value * (0.8 + 0.6 * rnd())) / 1000) * 1000, visits: bal.deal.visits, months: bal.deal.months, quote: 1, calls: 0, heavy, light: (heavy + 1 + Math.floor(rnd() * 4)) % 5, rival: Math.round(45 + rnd() * 30) });
   }
+  const P = bal.pro;
+  const spec = { build: [P.buildValue, P.buildCrew, P.buildMonths], haul: [P.haulValue, P.haulCrew, P.haulMonths], guard: [P.guardValue, P.guardCrew, P.guardMonths] };
+  for (const kind of PRO_KINDS) {
+    if (!permits.includes(kind)) continue;
+    const [value, crew, months] = spec[kind];
+    const mk = (big: boolean) => {
+      const heavy = Math.floor(rnd() * 5);
+      const k = big ? P.big : 1;
+      tr.bids.push({ id: tr.nextBid++, poi: clients[Math.floor(rnd() * clients.length)], kind, crew: crew * (big ? 2 : 1), big, value: Math.round((value * k * (0.8 + 0.4 * rnd())) / 1000) * 1000, visits: 1, months, quote: 1, calls: 0, heavy, light: (heavy + 1 + Math.floor(rnd() * 4)) % 5, rival: Math.round((big ? 60 : 40) + rnd() * 25) });
+    };
+    mk(false);
+    if (rankIdx >= P.bigRank && (tr.pro[kind] ?? 0) >= P.bigJobs) mk(true);
+  }
 }
 // 月末：通う回数を守れなかった契約は、代金の 10% を違約金として引かれ、関係が下がる。代金は翌月末に入る。話の勝ち負けを決める
-export function settleDeals(tr: Tr, month: number, rankIdx: number, bal: Balance): string[] {
+// 人を回す契約（建設・運送・警備）は、契約に回した人が足りていれば、その月の仕事が終わる
+export function settleDeals(tr: Tr, month: number, rankIdx: number, bal: Balance, crew = 0): string[] {
   const notes: string[] = [];
+  let free = crew;
   for (const d of tr.deals) {
+    if (d.crew) {
+      if (free >= d.crew) {
+        free -= d.crew;
+        d.done = d.visits;
+        tr.pro[d.kind!] = (tr.pro[d.kind!] ?? 0) + 1;
+      } else {
+        d.done = 0;
+        notes.push(`${DEAL_NAME[d.kind!]}の契約に回す人が足りなかった（${d.crew}人 要る）`);
+      }
+    }
     const late = d.done < d.visits;
     const pay = Math.round(d.value * (late ? 1 - bal.deal.penalty : 1) * (d.done / d.visits >= 0.5 || !late ? 1 : 0.5));
     if (d.done > 0) tr.recv.push({ amount: pay, due: month + 1, what: '契約の代金' });
     if (late) {
       tr.rel[d.poi] = Math.max(0, (tr.rel[d.poi] ?? 0) - bal.deal.relLoss);
-      notes.push('契約の回数を守れず、違約金を引かれた');
+      if (!d.crew) notes.push('契約の回数を守れず、違約金を引かれた');
     }
     d.left -= 1;
     d.done = 0;
   }
   tr.deals = tr.deals.filter((d) => d.left > 0);
   for (const b2 of tr.bids) {
-    const mine = scoreOf(tr, b2, rankIdx, bal);
+    const mine = scoreOf(tr, b2, rankIdx, bal, crew);
     // 同じ点なら、関係の高いほうが取る（競合の関係は 50 とみなす）
     if (mine > b2.rival || (mine === b2.rival && (tr.rel[b2.poi] ?? 0) > 50)) {
-      tr.deals.push({ poi: b2.poi, value: Math.round((b2.value * b2.quote) / 1000) * 1000, visits: b2.visits, left: b2.months, done: 0 });
-      notes.push(`契約が取れた（${mine}点・競合 ${b2.rival}点）。月に ${b2.visits}回 通う`);
+      tr.deals.push({ poi: b2.poi, value: Math.round((b2.value * b2.quote) / 1000) * 1000, visits: b2.visits, left: b2.months, done: 0, ...(b2.crew ? { kind: b2.kind, crew: b2.crew } : {}) });
+      notes.push(b2.crew ? `${DEAL_NAME[b2.kind!]}の${b2.big ? '入札' : '契約'}が取れた（${mine}点・競合 ${b2.rival}点）。人を ${b2.crew}人 回す` : `契約が取れた（${mine}点・競合 ${b2.rival}点）。月に ${b2.visits}回 通う`);
     } else notes.push(`契約は競合に取られた（${mine}点・競合 ${b2.rival}点）`);
   }
   return notes;
