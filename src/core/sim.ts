@@ -379,7 +379,8 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         { id: 'power', label: '電動の道具を買う', sub: tr.power ? '持っている' : `${yen(m.power)}／作るのが速くなる・品質が上がる`, ok: !tr.power && s.cash + s.dirty >= m.power, why: tr.power ? '持っている' : 'お金が足りない' },
         { id: 'washer', label: '洗浄の道具を買う', sub: tr.washer ? '持っている' : `${yen(m.washer)}／便利屋の高い仕事`, ok: !tr.washer && s.cash + s.dirty >= m.washer, why: tr.washer ? '持っている' : 'お金が足りない' },
         { id: 'crowbar', label: 'バールを買う', sub: s.crowbar ? '持っている' : `${yen(m.crowbar)}／こじ開ける（音が出る）`, ok: !s.crowbar && s.cash + s.dirty >= m.crowbar, why: s.crowbar ? '持っている' : 'お金が足りない' },
-        { id: 'laptop', label: 'ノートPCを買う', sub: s.laptop ? '持っている' : `${yen(m.laptop)}／ATM・監視カメラ`, ok: !s.laptop && s.cash + s.dirty >= m.laptop, why: s.laptop ? '持っている' : 'お金が足りない' },
+        { id: 'laptopOld', label: '中古のノートPCを買う', sub: s.laptop ? '持っている' : `${yen(m.laptopOld)}／開発を始められる。作るのは${Math.round(bal.soft.oldPc * 100)}%の速さ`, ok: !s.laptop && s.cash + s.dirty >= m.laptopOld, why: s.laptop ? '持っている' : 'お金が足りない' },
+        { id: 'laptop', label: s.tr.oldPc ? '新しいノートPCに買い替える' : 'ノートPCを買う', sub: s.laptop && !s.tr.oldPc ? '持っている' : `${yen(m.laptop)}／ATM・監視カメラ${s.tr.oldPc ? '・作るのが元の速さになる' : ''}`, ok: (!s.laptop || !!s.tr.oldPc) && s.cash + s.dirty >= m.laptop, why: s.laptop && !s.tr.oldPc ? '持っている' : 'お金が足りない' },
         { id: 'lockpick', label: 'ピッキング道具を買う', sub: s.lockpick ? '持っている' : `${yen(m.lockpick)}／鍵を静かに開ける`, ok: !s.lockpick && s.cash + s.dirty >= m.lockpick, why: s.lockpick ? '持っている' : 'お金が足りない' },
         { id: 'drill', label: 'ドリルを買う', sub: s.drill ? '持っている' : `${yen(m.drill)}／金庫を破る`, ok: !s.drill && s.cash + s.dirty >= m.drill, why: s.drill ? '持っている' : 'お金が足りない' },
       ];
@@ -1521,7 +1522,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const job = bal.jobs[pj.job];
       const know = s.eco.know.soft ?? 0;
       labor(s, city, 240 * slow, 'soft', bal, ev);
-      pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
+      pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.tr.oldPc ? bal.soft.oldPc : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
       if (pj.hours >= devHours(job, bal)) release(s, bal, ev);
       break;
     }
@@ -1551,9 +1552,18 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
         toast('ドリルを買った');
       }
       break;
-    case 'laptop':
-      if (pay(s, m.laptop, false)) {
+    case 'laptopOld':
+      if (!s.laptop && pay(s, m.laptopOld, false)) {
         s.laptop = true;
+        s.tr.oldPc = true;
+        s.tr.pc = true;
+        toast('中古のノートPCを買った');
+      }
+      break;
+    case 'laptop':
+      if ((!s.laptop || s.tr.oldPc) && pay(s, m.laptop, false)) {
+        s.laptop = true;
+        s.tr.oldPc = false;
         s.tr.pc = true;
         toast('ノートPCを買った');
       }

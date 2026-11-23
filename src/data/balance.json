@@ -40,7 +40,8 @@
     "matPrice": 200,
     "power": 25000,
     "washer": 60000,
-    "devOut": 80000
+    "devOut": 80000,
+    "laptopOld": 25000
   },
   "biz": {
     "stall": 120000,
@@ -564,6 +565,7 @@
     "saleBoost": 2,
     "fanRate": 0.2,
     "fanBuy": 0.3,
-    "teamHours": 6
+    "teamHours": 6,
+    "oldPc": 0.75
   }
 }

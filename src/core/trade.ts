@@ -19,6 +19,7 @@ export interface Tr {
   proj: Proj | null; // 作っている作品
   fans?: number; // これまでの作品を買った人のうち、次も買ってくれる人
   pc?: boolean; // ノートPCを持っている（開発の仕事の話が届く）
+  oldPc?: boolean; // 持っているのは中古のノートPC（作るのが遅い）
   titles: Title[];
   recv: { amount: number; due: number; what: string }[]; // あとで入るお金（翌月末）
   q: { sum: number; n: number }; // 今月の品質

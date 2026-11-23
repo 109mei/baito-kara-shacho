@@ -44,7 +44,7 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
     case 'car':
       return withExit({ w: 15, h: 10, floor: 'tile', f: [F('car', 1.2, 1.0, 2.2, 4.6), F('car', 4.8, 1.0, 2.2, 4.6), F('rug', 0.8, 0.7, 6.6, 5.2), F('desk', 10.8, 1.8, 2.6, 1.2), F('clerk', 11.7, 0.8, 0.8, 0.8), F('plant', 14.0, 8.9, 0.6, 0.6), F('sofa', 10.6, 6.4, 2.6, 1.0)], spots: [{ x: 12.1, y: 3.7, label: '中古車を買う', acts: ['buyCar'] }] });
     case 'tool':
-      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['mats', 'matsBulk', 'power', 'washer', 'crowbar', 'lockpick', 'laptop', 'drill'] }] });
+      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['mats', 'matsBulk', 'power', 'washer', 'crowbar', 'lockpick', 'laptopOld', 'laptop', 'drill'] }] });
     case 'pawn':
       return withExit({ w: 9, h: 7, floor: 'carpet', f: [F('counter', 0.6, 1.7, 7.8, 0.9), F('clerk', 4.1, 0.7, 0.8, 0.8), F('safe', 0.7, 0.5, 1.0, 1.0), F('safe', 7.3, 0.5, 1.0, 1.0), F('goods', 0.6, 4.6, 0.8, 1.6), F('goods', 7.6, 4.6, 0.8, 1.6)], spots: [{ x: 4.5, y: 3.3, label: '裏の取引', acts: ['sell', 'wash', 'gun'] }] });
     case 'jewel':

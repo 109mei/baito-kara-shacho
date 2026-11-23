@@ -119,10 +119,29 @@ export function play(model: Model, seed: number, months: number): Run {
       }
     } else {
       if (!s.laptop) {
-        if (s.cash >= b.money.laptop + living) did = go(P.tool, 'laptop', 'buy');
-      } else if (!tr.proj) did = go(P.home, fameOf(tr, 'soft') >= 20 ? 'devMid' : 'devSmall', 'start');
-      else if (!tr.proj.out && s.cash >= b.money.devOut + living * 3) did = go(P.home, 'devOut', 'buy');
-      else if (quit || (run.picks[run.months]?.[`d${Math.floor(s.clock / 1440)}`] ?? 0) >= 1) did = go(P.home, 'dev', tr.proj.job);
+        if (s.cash >= b.money.laptopOld) did = go(P.tool, 'laptopOld', 'buy'); // まず中古で始める
+      } else if (tr.oldPc && s.cash >= b.money.laptop + living * 2) did = go(P.tool, 'laptop', 'buy');
+      else {
+        // 会社から受ける開発の仕事は、いまからやる1件だけ受ける。作品は、作る → 半分で体験版 → 宣伝 → 終わりに不具合を直す
+        const g = tr.gigs.find((q) => q.taken && q.job === 'softWork') ?? tr.gigs.find((q) => q.job === 'softWork');
+        if (g && !g.taken) apply(s, city, { type: 'gig', id: g.id, take: true }, b);
+        const pj = tr.proj;
+        const need = pj ? Math.round(b.jobs[pj.job].hours * b.time.quotaScale) : 0;
+        const today = quit || (run.picks[run.months]?.[`d${Math.floor(s.clock / 1440)}`] ?? 0) >= 1; // 勤めている間は、先にアルバイトを1回
+        for (const t of tr.titles) if (t.sale === undefined && s.eco.days / b.time.daysPerMonth - t.month >= 2) apply(Object.assign(s, { x: P.home.x, y: P.home.y }), city, { type: 'poi', id: P.home.id, act: 'devSale' }, b);
+        if (!pj) did = go(P.home, fameOf(tr, 'soft') >= 20 ? 'devMid' : 'devSmall', 'start');
+        else if (!pj.out && s.cash >= b.money.devOut + living * 3) did = go(P.home, 'devOut', 'buy');
+        else if (!today) did = false;
+        else if (g) did = go(P.home, 'deskGig', 'softWork');
+        else if (!pj.demo && pj.hours >= need * b.soft.demoAt) did = go(P.home, 'demo', 'demo');
+        else if (pj.hours >= need * 0.6 && (pj.hype ?? 0) < 30 + (pj.demo ? b.soft.demoHype : 0)) did = go(P.home, 'promo', 'promo');
+        else if (pj.hours >= need * 0.8 && (pj.q ?? 50) < b.soft.qBase + b.soft.fixGain * 3) did = go(P.home, 'fix', 'fix');
+        else if (tr.titles.some((t) => (t.upd ?? 0) < 1) && (run.picks[run.months]?.update ?? 0) < 1) did = go(P.home, 'devUpdate', 'update');
+        else if (pitched < 1 && h < 18 && !quit) {
+          did = go(P.market, 'pitchSoft', 'pitch');
+          pitched += did ? 1 : 0;
+        } else did = go(P.home, 'dev', pj.job);
+      }
     }
     if (!did && !quit && h < 16) {
       did = go(P.job, 'work', 'baito');
@@ -139,7 +158,7 @@ export function play(model: Model, seed: number, months: number): Run {
 }
 
 // 手の偏り：月ごとに、いちばん選ばれた手の割合（寝る・買う・始めるは、手に数えない）
-const HANDS = ['baito', 'craftSmall', 'craftOrder', 'sell', 'pitch', 'handyTidy', 'handyClean', 'handyWash', 'softSmall', 'softMid', 'rest'];
+const HANDS = ['baito', 'craftSmall', 'craftOrder', 'sell', 'pitch', 'handyTidy', 'handyClean', 'handyWash', 'softSmall', 'softMid', 'softWork', 'demo', 'promo', 'fix', 'update', 'rest'];
 export function topShare(runs: Run[], months: number): number {
   let worst = 0;
   for (let m = 0; m < months; m++) {
