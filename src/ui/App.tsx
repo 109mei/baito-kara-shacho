@@ -241,6 +241,7 @@ function BigMap() {
           {way && <button className="btn small" data-noway onClick={() => send({ type: 'noway' })}>道案内を消す</button>}
           <button className="btn small" data-sound onClick={() => setPrefs({ sound: !prefs.sound })}><Icon name={prefs.sound ? 'sound' : 'mute'} size={17} />音 {prefs.sound ? 'あり' : 'なし'}</button>
           <button className="btn small" data-text={prefs.text} onClick={() => setPrefs({ text: (prefs.text + 1) % 3 })}>字 {['ふつう', '大きい', 'とても大きい'][prefs.text]}</button>
+          <button className="btn small" data-hand={prefs.auto ? 'auto' : 'hand'} onClick={() => setPrefs({ auto: !prefs.auto })}>手の作業 {prefs.auto ? 'おまかせ' : '自分で'}</button>
           <button className="btn small" data-savebtn onClick={() => setBox(!box)}>セーブ</button>
           {sure
             ? <button className="btn small danger" data-reset="yes" onClick={() => start(true)}>本当に最初から</button>
@@ -599,11 +600,158 @@ function Mini() {
   );
 }
 
+// 手でやる操作（仕様書 11章）：並べる・なぞる・タップ。説明の文は出さない。結果は 上出来・ふつう・やり直し の3段
+const WORK_TITLE: Record<string, string> = { craftSmall: '組み立て', craftOrder: '組み立て', gig: '片付け', deal: '片付け', dev: '不具合つぶし', tend: '焼き上がり' };
+const GRADE_NAME = ['やり直し', 'ふつう', '上出来'];
+function Work() {
+  const work = useGame((s) => s.work)!;
+  const done = useGame((s) => s.workDone);
+  const setPrefs = useGame((s) => s.setPrefs);
+  const [grade, setGrade] = useState<0 | 1 | 2 | null>(null);
+  const finish = (g: 0 | 1 | 2) => {
+    if (grade !== null) return;
+    setGrade(g);
+    if (g === 2) sfx.great();
+    else if (g === 1) sfx.hit();
+    else sfx.miss();
+    buzz(g === 0 ? 25 : 8);
+    window.setTimeout(() => done(g), 650);
+  };
+  return (
+    <div className="veil mini" data-work={work.kind}>
+      <div className="mini-box work-box">
+        <b>{WORK_TITLE[work.act] ?? '作業'}</b>
+        {work.kind === 'sort' && <WorkSort n={work.act === 'craftOrder' ? 5 : 4} onDone={finish} />}
+        {work.kind === 'trace' && <WorkTrace narrow={work.narrow} onDone={finish} />}
+        {work.kind === 'tap' && <WorkTap narrow={work.narrow} onDone={finish} />}
+        {grade !== null ? <span className={`grade g${grade}`} data-grade={grade}>{GRADE_NAME[grade]}</span> : <button className="chip" data-auto onClick={() => { setPrefs({ auto: true }); finish(1); }}>おまかせ</button>}
+      </div>
+    </div>
+  );
+}
+// 並べる：部品を、小さい順に置く。間違いなしで上出来、1か所までならふつう
+function WorkSort({ n, onDone }: { n: number; onDone: (g: 0 | 1 | 2) => void }) {
+  const [cards] = useState(() => {
+    const a = Array.from({ length: n }, (_, i) => i + 1);
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    if (a.every((v, i) => v === i + 1)) a.reverse(); // 最初からそろっていたら、逆にする
+    return a;
+  });
+  const [placed, setPlaced] = useState<number[]>([]);
+  const [miss, setMiss] = useState(0);
+  const pick = (v: number) => {
+    if (placed.includes(v) || placed.length >= n) return;
+    const want = Math.min(...cards.filter((c) => !placed.includes(c)));
+    const wrong = v !== want;
+    if (wrong) sfx.miss();
+    else sfx.tap();
+    buzz(wrong ? 25 : 8);
+    const next = [...placed, v];
+    const m = miss + (wrong ? 1 : 0);
+    setPlaced(next);
+    setMiss(m);
+    if (next.length === n) onDone(m === 0 ? 2 : m === 1 ? 1 : 0);
+  };
+  const bar = (v: number) => <i style={{ height: `${20 + (v / n) * 80}%` }} />;
+  return (
+    <div className="sort" data-sort>
+      <div className="slots">{Array.from({ length: n }, (_, i) => <span key={i} className={placed[i] !== undefined ? 'full' : ''} data-slot={placed[i] ?? ''}>{bar(placed[i] ?? i + 1)}</span>)}</div>
+      <div className="cards">{cards.map((v) => <button key={v} className="card" data-v={v} disabled={placed.includes(v)} onPointerDown={() => pick(v)}>{bar(v)}</button>)}</div>
+    </div>
+  );
+}
+// なぞる：線に沿って、端から端まで指を動かす。ずれが指の幅の半分以内で上出来、指の幅以内でふつう
+function WorkTrace({ narrow, onDone }: { narrow: number; onDone: (g: 0 | 1 | 2) => void }) {
+  const N = 48;
+  const FINGER = 40 * narrow; // 指の幅（絵の中の長さ）
+  const [pts] = useState(() => {
+    const amp = 30 + Math.random() * 18;
+    const f = 1 + Math.random() * 0.6;
+    const ph = Math.random() * 6.28;
+    return Array.from({ length: N + 1 }, (_, i) => [20 + (260 * i) / N, 80 + amp * Math.sin((i / N) * 6.28 * f + ph)] as [number, number]);
+  });
+  const svg = useRef<SVGSVGElement>(null);
+  const st = useRef({ prog: 0, devs: [] as number[], down: false, over: false });
+  const [prog, setProg] = useState(0);
+  const [trail, setTrail] = useState<[number, number][]>([]);
+  const move = (e: React.PointerEvent) => {
+    const r = svg.current?.getBoundingClientRect();
+    const t = st.current;
+    if (!r || !t.down || t.over) return;
+    const x = ((e.clientX - r.left) / r.width) * 300;
+    const y = ((e.clientY - r.top) / r.height) * 160;
+    // 進んだ所の少し先までで、いちばん近い点をさがす（飛ばして進めない）
+    let best = -1;
+    let bd = 1e9;
+    for (let i = t.prog; i <= Math.min(N, t.prog + 5); i++) {
+      const d = Math.hypot(pts[i][0] - x, pts[i][1] - y);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    if (best < 0 || bd > 70) return;
+    t.devs.push(bd);
+    t.prog = best;
+    setProg(best);
+    setTrail((old) => [...old.slice(-80), [x, y]]);
+    if (best >= N - 1) {
+      t.over = true;
+      const sorted = [...t.devs].sort((a, b2) => a - b2);
+      const dev = sorted[Math.floor(sorted.length * 0.9)] ?? 99; // ほとんどの間（9割）のずれ
+      onDone(dev <= FINGER / 2 ? 2 : dev <= FINGER ? 1 : 0);
+    }
+  };
+  const path = (a: [number, number][]) => a.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  return (
+    <svg ref={svg} className="trace" data-trace viewBox="0 0 300 160" onPointerDown={(e) => { st.current.down = true; (e.target as Element).setPointerCapture?.(e.pointerId); move(e); }} onPointerMove={move} onPointerUp={() => { st.current.down = false; }}>
+      <path d={path(pts)} className="band" style={{ strokeWidth: FINGER }} />
+      <path d={path(pts)} className="guide" />
+      <path d={path(pts.slice(0, prog + 1))} className="done" />
+      {trail.length > 1 && <path d={path(trail)} className="trail" />}
+      <circle cx={pts[0][0]} cy={pts[0][1]} r="9" className="from" />
+      <circle cx={pts[N][0]} cy={pts[N][1]} r="9" className="to" />
+    </svg>
+  );
+}
+// タップ：動く印が的に重なったときに止める。的の中でふつう、的の中央3分の1で上出来
+function WorkTap({ narrow, onDone }: { narrow: number; onDone: (g: 0 | 1 | 2) => void }) {
+  const mark = useRef<HTMLDivElement>(null);
+  const pos = useRef(0);
+  const half = 0.13 * narrow;
+  useEffect(() => {
+    let raf = 0;
+    const t0 = performance.now();
+    const loop = (now: number) => {
+      pos.current = 0.5 + 0.5 * Math.sin(((now - t0) / 1000) * 2.4);
+      if (mark.current) mark.current.style.left = `${pos.current * 100}%`;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const tap = () => {
+    const d = Math.abs(pos.current - 0.5);
+    onDone(d < half / 3 ? 2 : d < half ? 1 : 0);
+  };
+  return (
+    <div className="lane work-lane" data-tap onPointerDown={tap}>
+      <span className="zone" style={{ left: `${(0.5 - half) * 100}%`, width: `${half * 200}%` }} />
+      <span className="zone best" style={{ left: `${(0.5 - half / 3) * 100}%`, width: `${(half / 3) * 200}%` }} />
+      <div className="mark" ref={mark} />
+    </div>
+  );
+}
+
 function Game() {
   const stage = useRef<HTMLDivElement>(null);
   const hud = useGame((s) => s.hud);
   const panel = useGame((s) => s.panel);
   const mini = useGame((s) => s.mini);
+  const work = useGame((s) => s.work);
   const routes = useGame((s) => s.routes);
   const prefs = useGame((s) => s.prefs);
   const loan = useGame((s) => s.loan);
@@ -765,6 +913,7 @@ function Game() {
       {report && !busted && <Report />}
       {routes !== null && <Routes id={routes} />}
       {mini && <Mini />}
+      {work && <Work />}
       {bigMap && <BigMap />}
       {downed !== null && (
         <div className="veil center" data-down>

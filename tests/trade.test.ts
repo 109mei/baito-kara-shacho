@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
-import { apply, adviceOf, clientsOf, createGame, fromSave, poiActions, toSave } from '../src/core/sim';
+import { apply, adviceOf, clientsOf, createGame, fromSave, nearby, poiActions, toSave } from '../src/core/sim';
 import { baseQuota, firstUnits, left, newTr, offerBids, quality, scoreOf, scoreParts, settleDeals, workMins, type Bid } from '../src/core/trade';
 import { balance as b } from '../src/data/schema';
 
@@ -260,5 +260,47 @@ describe('許認可の要る契約（建設・運送・警備）と入札', () =
     expect(scoreParts(tr, bid, 2, b, 4)[4]).toBe(0); // 2人は、ほかの契約に取られている
     tr.pro.build = 5;
     expect(scoreParts(tr, bid, 2, b, 5)[1]).toBe(20); // 実績は、同じ種類の仕事で数える
+  });
+});
+
+describe('手でやる操作の結果', () => {
+  const home = city.home;
+  const make = (grade?: 0 | 1 | 2) => {
+    const s = createGame(7, city, b);
+    s.cash = 100000;
+    s.clock = 9 * 60;
+    s.tr.mats = 40;
+    s.x = home.x;
+    s.y = home.y;
+    const t0 = s.clock;
+    apply(s, city, { type: 'poi', id: home.id, act: 'craftSmall', ...(grade === undefined ? {} : { grade }) }, b);
+    return { s, mins: s.clock - t0 };
+  };
+  it('上出来は品質 +5。ふつう（おまかせ）はそのまま。やり直しは時間が2割多くかかる。材料とお金は同じ', () => {
+    const [auto, bad, ok, good] = [make(), make(0), make(1), make(2)];
+    expect(ok.mins).toBe(auto.mins);
+    expect(good.mins).toBe(auto.mins);
+    expect(bad.mins).toBeCloseTo(auto.mins * b.self.handSlow, 5);
+    for (const r of [bad, ok, good]) {
+      expect(r.s.tr.mats).toBe(auto.s.tr.mats);
+      expect(r.s.cash).toBe(auto.s.cash);
+      expect(r.s.tr.stock.craftSmall).toBe(4);
+    }
+    expect(auto.s.tr.q.sum).toBe(0);
+    expect(good.s.tr.q.sum).toBe(b.self.handGood * 4);
+  });
+});
+
+describe('仕事を受けた家', () => {
+  it('バールを持っていなくても、仕事を受けた家には近づいて入れる（受けていない留守の家は出ない）', () => {
+    const s = createGame(7, city, b);
+    const g = s.tr.gigs[0];
+    const p = city.pois[g.poi];
+    s.x = p.x;
+    s.y = p.y + 2;
+    expect(nearby(s, city).poi?.id).not.toBe(p.id);
+    g.taken = true;
+    expect(nearby(s, city).poi?.id).toBe(p.id);
+    expect(poiActions(s, city, p, b).some((a) => a.id === 'gig')).toBe(true);
   });
 });

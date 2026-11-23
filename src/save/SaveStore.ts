@@ -80,6 +80,7 @@ export interface Prefs {
   sound: boolean;
   calm: boolean;
   text: number; // 文字の大きさ（0 ふつう・1 大きい・2 とても大きい）
+  auto?: boolean; // 手でやる操作を「おまかせ」にする（操作なしで、ふつうの結果）
 }
 export function loadPrefs(): Prefs {
   let calm = false;
@@ -92,7 +93,7 @@ export function loadPrefs(): Prefs {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) {
       const p = JSON.parse(raw) as Partial<Prefs>;
-      return { sound: p.sound !== false, calm: typeof p.calm === 'boolean' ? p.calm : calm, text: p.text === 1 || p.text === 2 ? p.text : 0 };
+      return { sound: p.sound !== false, calm: typeof p.calm === 'boolean' ? p.calm : calm, text: p.text === 1 || p.text === 2 ? p.text : 0, auto: p.auto === true };
     }
   } catch {
     /* 読めなければ初期の値 */

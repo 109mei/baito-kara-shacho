@@ -66,7 +66,7 @@ export type Ev =
   | { type: 'sfx'; name: 'coin' | 'bigcoin' | 'crash' | 'door' | 'fail' | 'ok' | 'shot' | 'hurt' };
 export type Cmd =
   | { type: 'ride' }
-  | { type: 'poi'; id: number; act: string; hits?: number }
+  | { type: 'poi'; id: number; act: string; hits?: number; grade?: 0 | 1 | 2 } // grade＝手でやる操作の結果（0 やり直し・1 ふつう・2 上出来。なければ ふつう）
   | { type: 'way'; x: number; y: number }
   | { type: 'noway' }
   | { type: 'enter'; id: number; hits?: number; route?: 'front' | 'back' }
@@ -82,6 +82,9 @@ export type Cmd =
   | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
+// 手でやる操作（仕様書 11章）：仕事ごとに1つ。上出来は品質 +5、やり直しは時間が2割多くかかる。お金と材料は減らない
+export type HandKind = 'sort' | 'trace' | 'tap';
+export const HAND: Record<string, HandKind> = { craftSmall: 'sort', craftOrder: 'sort', gig: 'trace', deal: 'trace', dev: 'tap', tend: 'tap' };
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
 
 export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店', market: '売り場', office: '窓口', apart: 'アパート' };
@@ -233,7 +236,7 @@ export function nearby(s: GameState, city: City): { car?: Car; poi?: Poi } {
   }
   let pd = 20;
   for (const p of city.pois) {
-    if (p.kind === 'house' && !s.crowbar) continue;
+    if (p.kind === 'house' && !s.crowbar && !s.tr.gigs.some((g) => g.taken && g.poi === p.id)) continue; // 留守の家は、バールがあるか、仕事を受けた家だけ
     const d = Math.hypot(p.x - s.x, p.y - s.y);
     if (d < pd) {
       pd = d;
@@ -247,8 +250,9 @@ export function nearby(s: GameState, city: City): { car?: Car; poi?: Poi } {
 export function poiTitle(s: GameState, city: City, p: Poi): string {
   if (p.kind === 'hideout' && s.hide === p.id) return '自分のアジト';
   if (p.kind === 'gang') return ownedPoi(s, city, p) ? '奪ったアジト' : `${GANGS[s.turf[turfOf(city.size, p.x, p.y)]].name}のアジト`;
+  if (p.kind === 'house' && s.tr.gigs.some((g) => g.taken && g.poi === p.id)) return 'お客さんの家';
   const mine = s.biz.find((z) => z.poi === p.id);
-  return mine ? (mine.type === 'stall' ? '自分の屋台' : '自分の店') : POI_NAME[p.kind];
+  return mine ? (mine.type === 'stall' ? '自分の屋台' : mine.type === 'works' ? '自分の工房' : '自分の店') : POI_NAME[p.kind];
 }
 // 場所でできること。契約の相手の場所では、いちばん上に「契約の仕事」が出る
 export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
@@ -1234,6 +1238,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
   const act = poiActions(s, city, p, bal).find((a) => a.id === cmd.act);
   if (!act || !act.ok) return ev;
   const m = bal.money;
+  const good = cmd.grade === 2; // 手でやる操作が上出来
+  const slow = cmd.grade === 0 ? bal.self.handSlow : 1; // やり直し：時間が2割多くかかる
   const between = (lo: number, hi: number) => Math.round((lo + (hi - lo) * rnd(s)) / 1000) * 1000;
   const spawnMine = (bike: boolean) => {
     s.cars = s.cars.filter((c) => c.kind !== 'mine' || c.id === s.ride);
@@ -1302,11 +1308,12 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'craftOrder': {
       const job = bal.jobs[cmd.act];
       const n = cmd.act === 'craftSmall' ? 4 : 1;
-      const mins = workMins(job, s.eco.know.craft ?? 0, s.tr, s.eco.fatigue) * n;
+      const mins = workMins(job, s.eco.know.craft ?? 0, s.tr, s.eco.fatigue) * n * slow;
+      if (good) s.tr.q.sum += bal.self.handGood * n; // 上出来：この品の品質 +5（売ったときの平均に入る）
       s.tr.mats -= job.mat * n;
       s.tr.stock[cmd.act] = (s.tr.stock[cmd.act] ?? 0) + n;
       labor(s, city, mins, 'craft', bal, ev);
-      toast(`${job.name}を${n}つ作った。売り場へ持って行く`, 'good');
+      toast(`${job.name}を${n}つ作った${good ? '（上出来）' : ''}。売り場へ持って行く`, 'good');
       break;
     }
     case 'sellGoods': {
@@ -1338,9 +1345,9 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       if (!g) break;
       const job = bal.jobs[g.job];
       const know = s.eco.know.handy ?? 0;
-      labor(s, city, workMins(job, know, s.tr, s.eco.fatigue), 'handy', bal, ev);
+      labor(s, city, workMins(job, know, s.tr, s.eco.fatigue) * slow, 'handy', bal, ev);
       s.tr.gigs = s.tr.gigs.filter((x) => x !== g);
-      record(s.tr, g.job, 1, quality(know, s.tr.washer, false));
+      record(s.tr, g.job, 1, quality(know, s.tr.washer, false) + (good ? bal.self.handGood : 0));
       s.tr.jobs += 1;
       bizIn(s, job.price - job.mat, true);
       s.earned += job.price - job.mat;
@@ -1372,8 +1379,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       if (!pj) break;
       const job = bal.jobs[pj.job];
       const know = s.eco.know.soft ?? 0;
-      labor(s, city, 240, 'soft', bal, ev);
-      pj.hours += (4 * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
+      labor(s, city, 240 * slow, 'soft', bal, ev);
+      pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
       if (pj.hours >= job.hours) {
         const first = firstUnits(job, fameOf(s.tr, 'soft'), pj.out);
         s.tr.titles.push({ job: pj.job, month: monthOf(s.eco, bal), first });
@@ -1386,7 +1393,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'deal': {
       const dl = s.tr.deals.find((x) => x.poi === p.id && !x.crew && x.done < x.visits);
       if (!dl) break;
-      labor(s, city, bal.deal.visitMins, 'handy', bal, ev);
+      labor(s, city, bal.deal.visitMins * slow, 'handy', bal, ev);
+      if (good) s.tr.rel[dl.poi] = Math.min(100, (s.tr.rel[dl.poi] ?? 0) + 2); // 上出来：相手との関係が少し上がる
       dl.done += 1;
       s.tr.jobs += 1;
       toast(`契約の仕事をした（今月 ${dl.done}/${dl.visits}回）`, 'good');
@@ -1515,7 +1523,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       if (!z) break;
       const field = z.type === 'stall' ? 'food' : 'retail';
       const t = serve(z, 4, [{ cap: bal.shop.selfCap, service: 40 + (s.eco.know[field] ?? 0) / 2 }], trafficAt(s, city, p, bal), 1, bal, s.eco.fx.includes('matUp') ? 1.15 : 1);
-      labor(s, city, 240, field, bal, ev);
+      labor(s, city, 240 * slow, field, bal, ev);
+      if (good) z.repute = Math.min(100, z.repute + 1); // 上出来：評判が少し上がる
       z.seen = dayOf(s);
       const washed = s.eco.mix ? Math.min(s.dirty, Math.round(t.sales * bal.shop.mix)) : 0;
       s.eco.mixed += washed;

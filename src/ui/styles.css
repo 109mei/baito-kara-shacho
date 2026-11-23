@@ -111,7 +111,7 @@ button:disabled { cursor: default; }
 .veil.center { align-items: center; justify-content: center; }
 @keyframes dim { from { background: rgba(15, 20, 30, 0); } }
 @keyframes up { from { transform: translateY(40%); opacity: 0.4; } }
-.sheet { width: 100%; background: var(--bg); border-radius: 24px 24px 0 0; padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px); animation: up 0.36s var(--spring) both; box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 9px; }
+.sheet { width: 100%; background: var(--bg); border-radius: 24px 24px 0 0; padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px); animation: up 0.36s var(--spring) both; box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 9px; max-height: 88%; overflow-y: auto; overscroll-behavior: contain; }
 .sheet-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .sheet-head b { font-size: 20px; font-weight: 900; }
 .sheet-head small { font-size: 12.5px; font-weight: 800; color: var(--sub); background: #e9e4d8; padding: 2px 8px; border-radius: 6px; }
@@ -155,6 +155,34 @@ button:disabled { cursor: default; }
 .lane { position: relative; width: 100%; height: 56px; border-radius: 14px; background: #e3ded1; box-shadow: inset 0 2px 4px rgba(27, 35, 48, 0.16); }
 .lane .zone { position: absolute; top: 0; bottom: 0; left: 37%; width: 26%; background: var(--crime); opacity: 0.55; border-radius: 6px; }
 .lane .mark { position: absolute; top: -6px; bottom: -6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--ink); box-shadow: 0 0 0 2px #fff; }
+/* 手でやる操作：紺＝ふつうの操作、緑＝できた所・上出来の的 */
+.work-box { gap: 12px; }
+.work-box .chip { align-self: center; }
+.work-lane .zone { background: var(--ink); opacity: 0.22; }
+.work-lane .zone.best { background: var(--good); opacity: 0.8; border-radius: 4px; }
+.sort { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.sort .slots, .sort .cards { display: flex; gap: 8px; justify-content: center; align-items: flex-end; height: 74px; }
+.sort .slots span, .sort .card { flex: 1; max-width: 58px; height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 6px 8px; border-radius: 10px; }
+.sort .slots span { border: 2px dashed #cfc8b6; }
+.sort .slots span i { width: 100%; border-radius: 5px 5px 2px 2px; background: #dcd6c6; }
+.sort .slots span.full { border-style: solid; border-color: var(--good); }
+.sort .slots span.full i { background: var(--good); }
+.sort .card { background: #fff; box-shadow: 0 4px 0 #cfc8b6, 0 6px 12px -6px rgba(27, 35, 48, 0.4); transition: transform 0.06s, opacity 0.15s; touch-action: none; }
+.sort .card i { width: 100%; border-radius: 5px 5px 2px 2px; background: var(--ink); }
+.sort .card:active { transform: translateY(3px); box-shadow: 0 1px 0 #cfc8b6; }
+.sort .card:disabled { opacity: 0.18; box-shadow: none; }
+.trace { width: 100%; height: auto; border-radius: 14px; background: #e3ded1; touch-action: none; }
+.trace path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.trace .band { stroke: #fff; opacity: 0.6; }
+.trace .guide { stroke: var(--ink); stroke-width: 3; stroke-dasharray: 2 9; opacity: 0.55; }
+.trace .done { stroke: var(--good); stroke-width: 7; }
+.trace .trail { stroke: var(--ink); stroke-width: 3; opacity: 0.35; }
+.trace .from { fill: var(--ink); }
+.trace .to { fill: none; stroke: var(--ink); stroke-width: 3; }
+.grade { font-size: 22px; font-weight: 900; padding: 2px 16px; border-radius: 10px; border: 3px solid currentColor; transform: rotate(-4deg); animation: up 0.25s var(--spring) both; }
+.grade.g2 { color: var(--good); }
+.grade.g1 { color: var(--ink); }
+.grade.g0 { color: var(--bad); }
 .dots { display: flex; gap: 10px; }
 .dots i { width: 22px; height: 22px; border-radius: 50%; background: #e3ded1; transition: transform 0.2s var(--spring), background 0.1s; }
 .dots i.hit { background: var(--good); transform: scale(1.15); }

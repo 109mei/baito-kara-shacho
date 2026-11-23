@@ -22,7 +22,7 @@ export const BalanceSchema = z.object({
   loan: rec(['rateD', 'rateC', 'rateB', 'rateA', 'startRatio', 'startKnow', 'months', 'bankMonths', 'bankPayShare', 'deferFee']),
   tax: rec(['person', 'corp', 'delayMonths']),
   money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill', 'washRate', 'washCap', 'matPrice', 'power', 'washer', 'devOut']),
-  self: rec(['tirePerHour', 'sleep', 'nap', 'restPerHour', 'warn']),
+  self: rec(['tirePerHour', 'sleep', 'nap', 'restPerHour', 'warn', 'handGood', 'handSlow', 'handTired', 'handNarrow']),
   jobs: z.record(z.string(), job),
   shop: rec(['stallUnit', 'stallCost', 'stallFlow', 'stallCap', 'shopUnit', 'shopCost', 'shopFlow', 'shopCap', 'shopRent', 'depositMonths', 'depositMonthsE', 'selfCap', 'hours', 'ad', 'adGain', 'awareStart', 'awareDecay', 'unseen', 'happy', 'unhappy', 'mouth', 'mix']),
   staff: rec(['market', 'seekers', 'paper', 'site', 'siteFee', 'talk', 'raise', 'quit', 'sign', 'quiet', 'skim', 'skimRate', 'expHours']),

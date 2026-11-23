@@ -340,7 +340,11 @@
     "sleep": 24,
     "nap": 10,
     "restPerHour": 4,
-    "warn": 85
+    "warn": 85,
+    "handGood": 5,
+    "handSlow": 1.2,
+    "handTired": 80,
+    "handNarrow": 0.7
   },
   "shop": {
     "stallUnit": 600,

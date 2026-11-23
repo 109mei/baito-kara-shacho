@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
 import { dateOf, rankOf, type MonthRec } from '../core/eco';
 import { blocked } from '../core/rooms';
-import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, shortOf } from '../core/sim';
+import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState, shortOf, HAND, type HandKind } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -43,6 +43,7 @@ interface Store {
   panelActs: string[] | null; // 札に出す行動（部屋の中の1か所ぶん）。null は全部
   spotAction: () => void;
   mini: { poi: number; act: string; i?: number; route?: 'front' | 'back' } | null;
+  work: { poi: number; act: string; kind: HandKind; narrow: number } | null; // 手でやる操作（並べる・なぞる・タップ）
   routes: number | null; // 入り方を選んでいる場所
   pickRoute: (id: 'front' | 'back') => void;
   busted: Extract<Ev, { type: 'busted' }> | null;
@@ -74,7 +75,8 @@ interface Store {
   openPoi: () => void;
   act: (poi: number, act: string, mini: boolean) => void;
   miniDone: (hits: number) => void;
-  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'down' | 'routes' | 'report' | 'broke' | 'loan' | 'hub'>>) => void;
+  workDone: (grade: 0 | 1 | 2) => void;
+  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'work' | 'down' | 'routes' | 'report' | 'broke' | 'loan' | 'hub'>>) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   toast: (text: string, tone?: string) => void;
   guide: () => void;
@@ -142,6 +144,8 @@ function snapshot(): Hud {
   };
 }
 
+let lastWork: { act: string; grade: 0 | 1 | 2; day: number } | null = null;
+
 export const useGame = create<Store>((set, get) => {
   // 撃つ：近くにほかの人（外にいる人）がいて、見張りより近ければ、その人を狙う
   const shootNow = () => {
@@ -202,7 +206,7 @@ export const useGame = create<Store>((set, get) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const st = get();
-    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null || st.hub;
+    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.work !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null || st.hub;
     if (!paused) {
       acc += dt;
       let n = 0;
@@ -256,6 +260,7 @@ export const useGame = create<Store>((set, get) => {
     panel: null,
     panelActs: null,
     mini: null,
+    work: null,
     routes: null,
     busted: null,
     down: null,
@@ -307,7 +312,7 @@ export const useGame = create<Store>((set, get) => {
       core = saved && saved.seed === CITY_SEED ? fromSave(saved, city, b) : createGame(CITY_SEED, city, b);
       if (fresh) SaveStore.clear();
       input.fire = false;
-      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, routes: null, busted: null, down: null, bigMap: false, report: null, broke: false, loan: null, hub: false });
+      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, work: null, routes: null, busted: null, down: null, bigMap: false, report: null, broke: false, loan: null, hub: false });
       cancelAnimationFrame(raf);
       last = performance.now();
       raf = requestAnimationFrame(loop);
@@ -385,8 +390,20 @@ export const useGame = create<Store>((set, get) => {
       else if (sp.acts) set({ panel: core.inside.poi, panelActs: sp.acts });
     },
     act: (poi, act, mini) => {
+      const kind = HAND[act];
       if (mini) set({ mini: { poi, act }, panel: null });
-      else get().send({ type: 'poi', id: poi, act });
+      else if (kind && !get().prefs.auto) {
+        // 同じ仕事を同じ日に続けるときは、操作は最初の1回だけ。残りは同じ結果で進む
+        if (lastWork && lastWork.act === act && lastWork.day === dayOf(core)) get().send({ type: 'poi', id: poi, act, grade: lastWork.grade });
+        else set({ work: { poi, act, kind, narrow: core.eco.fatigue > b.self.handTired ? b.self.handNarrow : 1 } });
+      } else get().send({ type: 'poi', id: poi, act });
+    },
+    workDone: (grade) => {
+      const w = get().work;
+      set({ work: null });
+      if (!w) return;
+      lastWork = { act: w.act, grade, day: dayOf(core) };
+      get().send({ type: 'poi', id: w.poi, act: w.act, grade });
     },
     miniDone: (hits) => {
       const m = get().mini;
@@ -436,7 +453,7 @@ if (typeof window !== 'undefined') {
 // 確かめ用（ブラウザのテストから状態を読む・場所へ動かす）
 declare global {
   interface Window {
-    __game?: { state: () => ReturnType<typeof toSave> & { ride: number | null; cars: number; inside: boolean }; spot: (i: number) => void; exit: () => void; mini: (hits: number) => void; go: (h: string, n?: number) => number; ins: () => GameState['inside']; tp: (x: number, y: number) => void; poi: (kind: string) => Poi | undefined; clock: (hour: number) => void; give: (what: string) => void };
+    __game?: { state: () => ReturnType<typeof toSave> & { ride: number | null; cars: number; inside: boolean }; spot: (i: number) => void; exit: () => void; mini: (hits: number) => void; work: (grade: 0 | 1 | 2) => void; go: (h: string, n?: number) => number; ins: () => GameState['inside']; tp: (x: number, y: number) => void; poi: (kind: string | number) => Poi | undefined; clock: (hour: number) => void; give: (what: string) => void };
   }
 }
 if (typeof window !== 'undefined') {
@@ -466,11 +483,12 @@ if (typeof window !== 'undefined') {
       if (room) window.__game!.spot(room.spots.length - 1);
     },
     mini: (hits) => useGame.getState().miniDone(hits),
+    work: (grade) => useGame.getState().workDone(grade),
     tp: (x, y) => {
       core.x = x;
       core.y = y;
     },
-    poi: (kind) => city.pois.find((p) => p.kind === kind),
+    poi: (kind) => (typeof kind === 'number' ? city.pois[kind] : city.pois.find((p) => p.kind === kind)),
     give: (what) => {
       if (what === 'gun') core.gun = true;
       if (what === 'crowbar') core.crowbar = true;

@@ -338,16 +338,50 @@ test('手作りの品：材料を買い、自宅の作業台で作り、売り�
   await use(page, 1);
   await expect(page.locator('[data-act="craftSmall"]')).toBeEnabled();
   await shot(page, '21-workbench');
+  // 手でやる操作「並べる」：部品を小さい順に置くと、上出来
   await page.locator('[data-act="craftSmall"]').click();
+  await expect(page.locator('[data-work="sort"]')).toBeVisible();
+  await page.waitForTimeout(350);
+  await shot(page, '26-work-sort');
+  for (const v of [1, 2, 3, 4]) await page.locator(`[data-work] [data-v="${v}"]`).click();
+  await expect(page.locator('[data-grade="2"]')).toBeVisible();
+  await expect(page.locator('[data-work]')).toHaveCount(0);
+  expect((await state(page)).tr.q.sum).toBe(5 * 4);
+  expect((await state(page)).tr.stock.craftSmall).toBe(4);
   await page.locator('[data-panel] [data-close]').click();
   await out(page);
+  // 「なぞる」：受けた話の家で、線に沿って端から端まで動かす
+  const gigPoi = (await state(page)).tr.gigs.find((g) => g.taken)!.poi;
+  await page.evaluate((id) => {
+    const p = window.__game!.poi(id)!;
+    window.__game!.tp(p.x, p.y + 2);
+  }, gigPoi);
+  await page.waitForTimeout(350);
+  await page.locator('[data-ctx="poi"]').click();
+  await page.locator('[data-act="gig"]').click();
+  await expect(page.locator('[data-work="trace"]')).toBeVisible();
+  await page.waitForTimeout(350);
+  await shot(page, '27-work-trace');
+  const pts = await page.locator('[data-trace] .guide').evaluate((el) => {
+    const r = (el as SVGPathElement).ownerSVGElement!.getBoundingClientRect();
+    return (el.getAttribute('d') ?? '').split(/[ML]/).filter(Boolean).map((t) => t.trim().split(' ').map(Number)).map(([x, y]) => [r.left + (x / 300) * r.width, r.top + (y / 160) * r.height]);
+  });
+  await page.mouse.move(pts[0][0], pts[0][1]);
+  await page.mouse.down();
+  for (const [x, y] of pts) await page.mouse.move(x, y);
+  await page.mouse.up();
+  await expect(page.locator('[data-grade="2"]')).toBeVisible();
+  await expect(page.locator('[data-work]')).toHaveCount(0);
+  expect((await state(page)).tr.gigs.filter((g) => g.taken).length).toBe(0);
+  await page.locator('[data-panel] [data-close]').click();
+  const earned = (await state(page)).cash;
   await goTo(page, 'market');
   await enter(page);
   await page.waitForTimeout(600);
   await shot(page, '22-market');
   await use(page, 0);
   await page.locator('[data-act="sellGoods"]').click();
-  await expect.poll(async () => (await state(page)).cash).toBe(30000 - 2000 + 4 * 800);
+  await expect.poll(async () => (await state(page)).cash).toBe(earned + 4 * 800);
 });
 
 test('屋台：窓口で講習を受け、空き店舗で屋台を出し、広告を出して店に立つ。「仕事と商売」に店が出る', async ({ page }) => {
@@ -381,8 +415,16 @@ test('屋台：窓口で講習を受け、空き店舗で屋台を出し、広�
   await page.locator('[data-act="ad"]').click();
   await page.waitForTimeout(300);
   await shot(page, '25-my-stall');
+  // 手でやる操作「タップ」が出る。「おまかせ」を選ぶと、操作なしで ふつう の結果になり、次からは出ない
   await page.locator('[data-act="tend"]').click();
+  await expect(page.locator('[data-work="tap"]')).toBeVisible();
+  await page.waitForTimeout(350);
+  await shot(page, '28-work-tap');
+  await page.locator('[data-work] [data-auto]').click();
+  await expect(page.locator('[data-grade="1"]')).toBeVisible();
+  await expect(page.locator('[data-work]')).toHaveCount(0);
   await expect.poll(async () => (await state(page)).biz[0].m.cust).toBeGreaterThan(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('baito-kara-shacho/prefs') ?? '{}').auto)).toBe(true);
   await page.locator('[data-panel] [data-close]').click();
   await out(page);
   await page.locator('[data-hubbtn]').click();
