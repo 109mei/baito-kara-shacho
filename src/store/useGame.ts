@@ -51,6 +51,7 @@ interface Store {
   hurt: number; // 撃たれた回数（画面のふちを赤く光らせる合図）
   report: MonthRec | null; // 月次レポート（月末の締め）
   broke: false | 'me' | 'corp'; // 倒産した（自分／会社）
+  ending: boolean; // 自社のロケットが宇宙へ届いた
   loan: number | null; // 融資の相談をしている銀行
   hub: boolean; // 「仕事と商売」の札
   gig: (id: number, take: boolean) => void;
@@ -76,7 +77,7 @@ interface Store {
   act: (poi: number, act: string, mini: boolean) => void;
   miniDone: (hits: number) => void;
   workDone: (grade: 0 | 1 | 2) => void;
-  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'work' | 'down' | 'routes' | 'report' | 'broke' | 'loan' | 'hub'>>) => void;
+  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'work' | 'ending' | 'down' | 'routes' | 'report' | 'broke' | 'loan' | 'hub'>>) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   toast: (text: string, tone?: string) => void;
   guide: () => void;
@@ -194,6 +195,7 @@ export const useGame = create<Store>((set, get) => {
         set({ report: e.rec, panel: null, loan: null });
         sfx.month(e.rec.unpaid.length === 0);
       } else if (e.type === 'bankrupt') set({ broke: e.corp ? 'corp' : 'me' });
+      else if (e.type === 'rocket') set({ ending: true, panel: null });
       else if (e.type === 'skip') set({ fade: get().fade + 1 });
     }
   };
@@ -206,7 +208,7 @@ export const useGame = create<Store>((set, get) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const st = get();
-    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.work !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null || st.hub;
+    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.work !== null || st.ending || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null || st.hub;
     if (!paused) {
       acc += dt;
       let n = 0;
@@ -261,6 +263,7 @@ export const useGame = create<Store>((set, get) => {
     panelActs: null,
     mini: null,
     work: null,
+    ending: false,
     routes: null,
     busted: null,
     down: null,

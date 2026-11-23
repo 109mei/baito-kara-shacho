@@ -533,3 +533,102 @@ describe('土地', () => {
     expect(landsOf(s)[0].mort).toBeUndefined();
   });
 });
+
+describe('お金の使い道', () => {
+  const rich = () => {
+    const s = createGame(7, city, b);
+    s.cash = 30000000;
+    s.clock = 10 * 60;
+    return s;
+  };
+  const B = b.spend;
+  it('家具：ベッドで寝ると疲れが多く取れ、作業台で手作りが速くなり、椅子で開発が進む', () => {
+    const run = (buy: boolean) => {
+      const s = rich();
+      if (buy) for (const a of ['buyBed', 'buyBench', 'buyChair', 'buyTv']) go(s, city.home, a);
+      s.eco.fatigue = 60;
+      go(s, city.home, 'rest');
+      const rest = 60 - s.eco.fatigue;
+      s.eco.fatigue = 70;
+      go(s, city.home, 'sleep');
+      const sleep = 70 - s.eco.fatigue;
+      s.tr.mats = 10;
+      s.eco.fatigue = 0;
+      const t = s.clock;
+      go(s, city.home, 'craftSmall');
+      const craft = s.clock - t;
+      s.laptop = true;
+      go(s, city.home, 'devSmall');
+      s.eco.fatigue = 0;
+      go(s, city.home, 'dev');
+      return { s, rest, sleep, craft, dev: s.tr.proj!.hours };
+    };
+    const [a, c] = [run(false), run(true)];
+    expect(c.s.cash).toBe(a.s.cash - B.bed - B.bench - B.chair - B.tv);
+    expect(c.rest - a.rest).toBe(B.tvGain);
+    expect(c.sleep - a.sleep).toBe(B.bedGain);
+    expect(c.craft).toBe(Math.round(a.craft * B.benchK));
+    expect(c.dev).toBeCloseTo(a.dev * B.chairK, 5);
+    go(c.s, city.home, 'buyBed'); // 2つめは買えない
+    expect(c.s.eco.buy!.bed).toBe(1);
+  });
+  it('弁当は1日2回まで。講座は、いちばん使っている業種の知識が上がる（60まで）', () => {
+    const s = rich();
+    s.eco.fatigue = 40;
+    for (let i = 0; i < 4; i++) go(s, kind('conbini'), 'snack');
+    expect(s.eco.fatigue).toBe(40 - B.snackGain * B.snackMax);
+    expect(s.cash).toBe(30000000 - B.snack * B.snackMax);
+    s.eco.know = { craft: 12, handy: 3 };
+    go(s, kind('office'), 'course');
+    expect(s.eco.know.craft).toBe(12 + B.courseGain);
+    s.eco.know = { craft: B.courseMax };
+    expect(poiActions(s, city, kind('office'), b).find((a) => a.id === 'course')!.ok).toBe(false);
+  });
+  it('店を良くする：看板で認知、改装で入る割合、設備でさばける数が上がる', () => {
+    const z = newShop('shop', lot.id, 0, 0, 0, b);
+    z.aware = 50;
+    const base = arriveRate(z, 1, b);
+    z.up = { deco: true };
+    expect(arriveRate(z, 1, b)).toBeCloseTo(base * B.decoK);
+    const a = serve(newShop('shop', lot.id, 0, 0, 0, b), 1, [{ cap: 4, service: 50 }], 99, 1, b);
+    const g = serve({ ...newShop('shop', lot.id, 0, 0, 0, b), up: { gear: true } }, 1, [{ cap: 4, service: 50 }], 99, 1, b);
+    expect(a.cust).toBeLessThanOrEqual(4);
+    expect(g.cust).toBeGreaterThanOrEqual(a.cust);
+    const s = rich();
+    go(s, kind('office'), 'lecture');
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    go(s, lot, 'stall');
+    const aware = s.biz[0].aware;
+    go(s, lot, 'upSign');
+    expect(s.biz[0].aware).toBe(aware + B.signAware);
+    expect(s.biz[0].up).toEqual({ sign: true });
+  });
+  it('人にボーナスを出すと、不満が下がる', () => {
+    const s = rich();
+    s.firm.staff.push({ ...makeStaff(1, rng(3), b), mood: 70, wage: 9000 });
+    const cash = s.cash;
+    apply(s, city, { type: 'staff', id: 1, act: 'bonus' }, b);
+    expect(s.firm.staff[0].mood).toBe(70 - B.bonusMood);
+    expect(s.cash).toBe(cash - 9000 * B.bonusDays);
+  });
+  it('いちばん大きな目標：法人にして、信用を上げ、4つの段を払うと、ロケットが宇宙へ届く', () => {
+    const s = rich();
+    const act = () => poiActions(s, city, kind('office'), b).find((a) => a.id === 'rocket')!;
+    expect(act().why).toBe('法人にしてから');
+    s.eco.corp = { bank: 0, salary: 0 };
+    expect(act().ok).toBe(false); // 信用のランクが足りない
+    s.eco.credit = 650;
+    expect(act().ok).toBe(true);
+    for (let i = 0; i < 3; i++) go(s, kind('office'), 'rocket');
+    expect(s.eco.buy!.rocket).toBe(3);
+    expect(s.cash).toBe(30000000 - B.rocket1 - B.rocket2 - B.rocket3);
+    expect(act().ok).toBe(false); // 打ち上げは、ランクAから
+    s.eco.credit = 820;
+    const evs = go(s, kind('office'), 'rocket');
+    expect(evs.some((e) => e.type === 'rocket')).toBe(true);
+    expect(s.eco.buy!.rocket).toBe(4);
+    expect(rank(s)).toBe('宇宙へ行った社長');
+    go(s, kind('office'), 'rocket');
+    expect(s.eco.buy!.rocket).toBe(4);
+  });
+});

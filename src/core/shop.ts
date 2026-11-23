@@ -15,6 +15,7 @@ export interface Shop {
   rivals: number; rivalPrice: number; // 近くの競合の数と、その値段（こちらの値下げや繁盛に、2か月ほど遅れて反応する）
   cut: number; hot: number; // 値下げが続いた月、よく売れた月
   d: Tally; m: Tally; // きのう（最後に開けた日）と、今月の数字
+  up?: { sign?: boolean; deco?: boolean; gear?: boolean }; // 店を良くする：看板（認知）・改装（入る割合）・設備（さばける数）
   sec?: { lock: boolean; cam: boolean; guard: boolean }; // 防犯：鍵と金庫・カメラ・警備会社との契約
   hit?: number; // 空き巣に狙われている月（1か月前に知らせが出る）
 }
@@ -54,7 +55,7 @@ export const arriveRate = (z: Shop, traffic: number, bal: Balance) => {
   const S = bal.shop;
   const flow = (z.type === 'stall' ? S.stallFlow : S.shopFlow) / S.hours; // 1時間に前を通る人
   const notice = z.aware / 100; // 気づく割合
-  const enter = clamp((0.1 * (z.rivalPrice / z.price) * (z.repute / 50)) / (1 + 0.2 * z.rivals), 0, 0.6); // 入る割合 ＝ 10% ×（相場 ÷ 値段）×（評判 ÷ 50）。競合がいると割れる
+  const enter = clamp(((0.1 * (z.rivalPrice / z.price) * (z.repute / 50)) / (1 + 0.2 * z.rivals)) * (z.up?.deco ? bal.spend.decoK : 1), 0, 0.6); // 入る割合 ＝ 10% ×（相場 ÷ 値段）×（評判 ÷ 50）。競合がいると割れる
   return flow * traffic * notice * enter;
 };
 // 店を hours 時間 開ける。perf＝店の回り具合（自分で見ていれば 1）
@@ -63,7 +64,7 @@ export function serve(z: Shop, hours: number, hands: Hand[], traffic: number, pe
   const unit = z.type === 'stall' ? S.stallUnit : S.shopUnit;
   const rate = z.type === 'stall' ? S.stallCost : S.shopCost;
   const arrive = arriveRate(z, traffic, bal) * hours;
-  const cap = hands.reduce((a, h) => a + h.cap, 0) * hours * perf;
+  const cap = hands.reduce((a, h) => a + h.cap, 0) * hours * perf * (z.up?.gear ? bal.spend.gearK : 1);
   const cust = Math.floor(Math.min(arrive, cap));
   const lost = Math.max(0, Math.round(arrive - cust));
   const service = hands.length ? hands.reduce((a, h) => a + h.service, 0) / hands.length : 0;

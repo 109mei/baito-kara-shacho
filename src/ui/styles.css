@@ -209,6 +209,7 @@ button:disabled { cursor: default; }
 /* ---- 経営：月末の払いが足りない知らせ、融資の相談、月次レポート */
 .need.due, .need.stuff, .need.staff { background: var(--ink); }
 .term { text-decoration: underline dotted rgba(27, 35, 48, 0.4); text-underline-offset: 4px; touch-action: none; }
+.ending .sky { width: 100%; height: auto; display: block; margin: 4px 0 8px; }
 .report .record { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: #fff; font-size: 17px; font-weight: 800; }
 .report .record b { font-size: 19px; font-weight: 900; color: var(--good); }
 .need { pointer-events: none; padding: 5px 12px 6px; border-radius: 6px 14px 14px 14px; background: var(--bad); color: #fff; font-weight: 900; font-size: 17px; }

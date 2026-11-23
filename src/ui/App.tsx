@@ -422,6 +422,7 @@ function Hub() {
               <button className="chip" data-s="boss" disabled={q.at < 0} onClick={() => staff(q.id, 'boss')}>{s.biz.some((z) => z.boss === q.id) ? '店長をやめる' : '店長に任せる'}</button>
               <button className="chip" data-s="raise" onClick={() => staff(q.id, 'raise')}>昇給</button>
               <button className="chip" data-s="talk" onClick={() => staff(q.id, 'talk')}>面談（1時間）</button>
+              <button className="chip" data-s="bonus" onClick={() => staff(q.id, 'bonus')}>ボーナス（{yen(q.wage * b.spend.bonusDays)}）</button>
               <button className="chip" data-s="fire" onClick={() => staff(q.id, 'fire')}>やめてもらう</button>
             </div>
           </div>
@@ -783,12 +784,46 @@ function WorkTap({ narrow, onDone }: { narrow: number; onDone: (g: 0 | 1 | 2) =>
   );
 }
 
+// いちばん大きな目標：自社のロケットが宇宙へ届いた
+function Ending() {
+  const set = useGame((s) => s.set);
+  const hud = useGame((s) => s.hud);
+  const s = getCore();
+  return (
+    <div className="veil ending" data-ending>
+      <div className="report">
+        <h2>宇宙へ届いた</h2>
+        <svg viewBox="0 0 200 120" className="sky" aria-hidden>
+          <rect width="200" height="120" rx="12" fill="#1b2330" />
+          {[[20, 20], [52, 44], [150, 18], [176, 60], [96, 14], [130, 84], [30, 88], [70, 70]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r={i % 3 ? 1.2 : 2} fill="#fff" opacity={0.5 + (i % 3) * 0.2} />)}
+          <path d="M0 120 Q100 70 200 120 Z" fill="#3d8f6a" />
+          <g transform="translate(112 50) rotate(28)">
+            <path d="M0 -22 C7 -12 7 6 5 14 L-5 14 C-7 6 -7 -12 0 -22 Z" fill="#f2efe6" />
+            <path d="M-5 6 L-11 16 L-5 14 Z M5 6 L11 16 L5 14 Z" fill="#c8453c" />
+            <circle cx="0" cy="-6" r="2.6" fill="#4a6fa5" />
+            <path d="M-3 14 L0 30 L3 14 Z" fill="#e0a526" />
+          </g>
+        </svg>
+        <p className="note">{hud.date}　自分の会社のロケットが、宇宙へ届いた。</p>
+        <div className="record">
+          <b>ここまでの記録</b>
+          <span>肩書き　{rank(s)}</span>
+          <span>独立　{s.eco.indep >= 0 ? `${s.eco.indep + 1}か月目` : 'まだ'}</span>
+          <span>事業　{s.biz.length}　土地　{landsOf(s).length}</span>
+        </div>
+        <button className="btn" data-close onClick={() => set({ ending: false })}>街へ戻る</button>
+      </div>
+    </div>
+  );
+}
+
 function Game() {
   const stage = useRef<HTMLDivElement>(null);
   const hud = useGame((s) => s.hud);
   const panel = useGame((s) => s.panel);
   const mini = useGame((s) => s.mini);
   const work = useGame((s) => s.work);
+  const ending = useGame((s) => s.ending);
   const routes = useGame((s) => s.routes);
   const prefs = useGame((s) => s.prefs);
   const loan = useGame((s) => s.loan);
@@ -950,6 +985,7 @@ function Game() {
       {routes !== null && <Routes id={routes} />}
       {mini && <Mini />}
       {work && <Work />}
+      {ending && <Ending />}
       {bigMap && <BigMap />}
       {downed !== null && (
         <div className="veil center" data-down>

@@ -2,9 +2,9 @@
 // 書き換えは「命令」（apply）と「1コマ進める」（step）だけで行う。乱数は種つき。
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
-import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
+import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec, RANKS } from './eco';
 import { landIncome, landPrice, LAND_USE, type Land, apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
-import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, releaseUnits, settleDeals, startMonth, startQ, unitsAt, workMins, type Tr } from './trade';
+import { crewUsed, DEAL_NAME, devHours, endMonth, fameOf, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, releaseUnits, settleDeals, startMonth, startQ, TRADE_NAME, unitsAt, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -61,6 +61,7 @@ export type Ev =
   | { type: 'day'; profit: number; washed: number; turf: number; lost: string; news: string }
   | { type: 'month'; rec: MonthRec } // 月末の締め（月次レポート）
   | { type: 'bankrupt'; corp?: boolean }
+  | { type: 'rocket' } // 自社のロケットが宇宙へ届いた
   | { type: 'down'; lost: number }
   | { type: 'skip' }
   | { type: 'sfx'; name: 'coin' | 'bigcoin' | 'crash' | 'door' | 'fail' | 'ok' | 'shot' | 'hurt' };
@@ -78,7 +79,7 @@ export type Cmd =
   | { type: 'line'; act: 'a' | 'b' | 'fareUp' | 'fareDown' | 'add' } // バスの路線：停まる場所・運賃・台数
   | { type: 'corp'; act: 'payUp' | 'payDown' | 'in' } // 法人：役員報酬を上げ下げする・自分のお金を会社に入れる
   | { type: 'bid'; id: number; act: 'low' | 'mid' | 'high' | 'call' } // 契約の話：見積を変える・通う
-  | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'talk' | 'assign' | 'boss' | 'proc' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
+  | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'bonus' | 'talk' | 'assign' | 'boss' | 'proc' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
   | { type: 'loan'; id: number; kind: 'start' | 'bank' | 'land'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
@@ -138,10 +139,14 @@ export function rank(s: GameState): string {
   const n = s.biz.length;
   const mine = s.turf.filter((t) => t === -1).length;
   // 社長＝法人にした人。事業を6つまで広げると大社長
+  if ((s.eco.buy?.rocket ?? 0) >= 4) return '宇宙へ行った社長';
   return mine >= 6 ? '街の支配者' : s.eco.corp && n >= 6 ? '大社長' : mine >= 3 ? '組長' : s.eco.corp ? '社長' : n >= 1 || s.firm.line ? '個人事業主' : 'アルバイト';
 }
 // 縄張り（横3×縦2）のとなり
 const TURF_NEXT = [[1, 3], [0, 2, 4], [1, 5], [0, 4], [1, 3, 5], [2, 4]];
+// 買った物（家具・ロケットの段など）
+export const bought = (s: GameState): Record<string, number> => (s.eco.buy ??= {});
+export const ROCKET = ['研究所を作る', 'エンジンの試験をする', '機体を作る', '打ち上げる'];
 // 持っている土地
 export const landsOf = (s: GameState): Land[] => (s.firm.lands ??= []);
 // 土地のいまの値段（立地と景気で動く）
@@ -366,6 +371,11 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         { id: 'hide', label: 'もうけを少なく申告する', sub: `いま ${Math.round(s.eco.hide * 100)}%を隠す／税務調査の見込み ${Math.round(auditChance(s.eco, bal) * 100)}%・見つかると隠した税の${bal.law.penalty}倍`, ok: true, crime: true },
         { id: 'busLecture', label: '運行管理者の講習を受ける', sub: s.firm.permits.includes('transit') ? '受けてある' : `${yen(bal.bus.lecture)}・${bal.bus.lectureHours}時間／バスの路線に要る`, ok: !s.firm.permits.includes('transit') && open && funds(s) >= bal.bus.lecture, why: s.firm.permits.includes('transit') ? '受けてある' : open ? 'お金が足りない' : '9時〜17時だけ' },
         { id: 'busStart', label: 'バスの路線を始める', sub: s.firm.line ? '走らせている' : `バス${bal.bus.min}台 ${yen(bal.bus.price * bal.bus.min)}（営業所ごとに${bal.bus.min}台から）`, ok: !s.firm.line && s.firm.permits.includes('transit') && funds(s) >= bal.bus.price * bal.bus.min, why: s.firm.line ? '走らせている' : !s.firm.permits.includes('transit') ? '運行管理者の講習が要る' : 'お金が足りない' },
+        (() => {
+          const B = bal.spend;
+          const k = Object.entries(s.eco.know).filter(([, v]) => v < B.courseMax).sort((a, b2) => b2[1] - a[1])[0]?.[0];
+          return { id: 'course', label: '商売の講座を受ける', sub: k ? `${yen(B.course)}・${B.courseHours}時間／${TRADE_NAME[k] ?? k}の知識 +${B.courseGain}（${B.courseMax}まで）` : `知識が ${B.courseMax} に届いている。あとは仕事で身につける`, ok: !!k && open && s.cash + Math.max(0, s.bank) >= B.course, why: !k ? '講座で学べる所は、もうない' : open ? 'お金が足りない' : '9時〜17時だけ' };
+        })(),
         ...(['build', 'haul', 'guard'] as const).map((k) => {
           const has = s.firm.permits.includes(k);
           const ng = permitConds(s, k, bal).filter((c) => !c.ok);
@@ -374,6 +384,14 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
           const lack = `足りない：${ng.map((c) => c.label).join('／')}`;
           return { id: `permit_${k}`, label: `${DEAL_NAME[k]}の許可を取る`, sub: has ? '取ってある' : ng.length ? lack : sub, ok: !has && open && !ng.length, why: has ? '取ってある' : open ? lack : '9時〜17時だけ' };
         }),
+        (() => {
+          const B = bal.spend;
+          const st = s.eco.buy?.rocket ?? 0;
+          const cost = [B.rocket1, B.rocket2, B.rocket3, B.rocket4][st] ?? 0;
+          const need = st === 3 ? B.launchRank : B.rocketRank;
+          const ng = st >= 4 ? '宇宙へ行った' : !s.eco.corp ? '法人にしてから' : rankIndex(s.eco.credit) < need ? `信用のランク ${RANKS[need]} から（いま ${rankOf(s.eco.credit)}）` : funds(s) < cost ? `お金が足りない（あと ${yen(cost - funds(s))}）` : !open ? '9時〜17時だけ' : '';
+          return { id: 'rocket', label: st >= 4 ? '宇宙開発' : `宇宙開発：${ROCKET[st]}`, sub: st >= 4 ? '自社のロケットが、宇宙へ届いた' : `${yen(cost)}／${st + 1}つめ（全部で4つ）。いちばん大きな目標`, ok: !ng, why: ng };
+        })(),
         (() => {
           const need = bal.corp.fee + bal.corp.capital;
           const had = s.eco.m.sales > 0 || s.eco.hist.some((h) => h.sales > 0);
@@ -398,7 +416,11 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
     case 'conbini':
     case 'warehouse': {
       const wage = p.kind === 'conbini' ? m.wageConbini : m.wageWarehouse;
-      return [{ id: 'work', label: `${m.shiftHours}時間はたらく`, sub: `+${yen(wage * m.shiftHours)}`, ok: st === 0 && h >= 6 && h < 20, why: st > 0 ? '手配されている' : '6時〜20時だけ' }];
+      const eaten = s.eco.buy?.snackDay === dayOf(s) ? s.eco.buy?.snackN ?? 0 : 0;
+      return [
+        { id: 'work', label: `${m.shiftHours}時間はたらく`, sub: `+${yen(wage * m.shiftHours)}`, ok: st === 0 && h >= 6 && h < 20, why: st > 0 ? '手配されている' : '6時〜20時だけ' },
+        ...(p.kind === 'conbini' ? [{ id: 'snack', label: '弁当とコーヒーを買う', sub: `${yen(bal.spend.snack)}・15分／疲れが ${bal.spend.snackGain} 取れる（1日 ${bal.spend.snackMax}回まで）`, ok: eaten < bal.spend.snackMax && s.eco.fatigue > 0 && s.cash + s.dirty >= bal.spend.snack, why: eaten >= bal.spend.snackMax ? 'きょうは、もう十分' : s.eco.fatigue <= 0 ? '疲れていない' : 'お金が足りない' }] : []),
+      ];
     }
     case 'bike':
       return [{ id: 'buyBike', label: '自転車を買う', sub: yen(m.bike), ok: s.cash + s.dirty >= m.bike, why: 'お金が足りない' }];
@@ -480,6 +502,9 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
           { id: 'priceDown', label: '値段を下げる', sub: `いま 相場の ${Math.round(z.price * 100)}%`, ok: z.price > 0.75, why: 'これ以上は下げられない' },
           { id: 'ad', label: '広告を出す', sub: `${yen(S.ad)}／認知 ${Math.round(z.aware)}（評判 ${Math.round(z.repute)}）`, ok: money >= S.ad, why: 'お金が足りない' },
           { id: 'mix', label: s.eco.mix ? '汚れたお金を混ぜるのをやめる' : '売上に汚れたお金を混ぜる', sub: `売上の2割まで、きれいになる／税務調査の見込み ${Math.round(auditChance(s.eco, bal) * 100)}%・見つかると没収`, ok: true, crime: true },
+          { id: 'upSign', label: '看板を出す', sub: z.up?.sign ? '出してある' : `${yen(bal.spend.sign)}／認知 +${bal.spend.signAware}。毎月の認知の下がりが半分`, ok: !z.up?.sign && funds(s) >= bal.spend.sign, why: z.up?.sign ? '出してある' : 'お金が足りない' },
+          { id: 'upDeco', label: '店を改装する', sub: z.up?.deco ? '改装してある' : `${yen(bal.spend.deco)}／店に入る人の割合が ${Math.round(bal.spend.decoK * 100)}%`, ok: !z.up?.deco && funds(s) >= bal.spend.deco, why: z.up?.deco ? '改装してある' : 'お金が足りない' },
+          { id: 'upGear', label: '設備を入れる', sub: z.up?.gear ? '入れてある' : `${yen(bal.spend.gear)}／さばける客の数が ${Math.round(bal.spend.gearK * 100)}%`, ok: !z.up?.gear && funds(s) >= bal.spend.gear, why: z.up?.gear ? '入れてある' : 'お金が足りない' },
           { id: 'secLock', label: '鍵と金庫をつける', sub: z.sec?.lock ? 'つけてある' : `${yen(bal.town.lock)}／空き巣にあう見込みが3割へる`, ok: !z.sec?.lock && funds(s) >= bal.town.lock, why: z.sec?.lock ? 'つけてある' : 'お金が足りない' },
           { id: 'secCam', label: '防犯カメラをつける', sub: z.sec?.cam ? 'つけてある' : `${yen(bal.town.cam)}／さらに3割へる`, ok: !z.sec?.cam && funds(s) >= bal.town.cam, why: z.sec?.cam ? 'つけてある' : 'お金が足りない' },
           { id: 'secGuard', label: z.sec?.guard ? '警備会社との契約をやめる' : '警備会社と契約する', sub: `月 ${yen(bal.town.guardFee)}／さらに3割へる${z.hit !== undefined ? '　いま、近くで空き巣が増えている' : ''}`, ok: true },
@@ -534,12 +559,20 @@ function homeActs(s: GameState, bal: Balance): Act[] {
   const m = bal.money;
   const J = bal.jobs;
   const kc = s.eco.know.craft ?? 0;
-  const mins = (id: string, n: number) => workMins(J[id], id.startsWith('craft') ? kc : s.eco.know.soft ?? 0, tr, s.eco.fatigue) * n;
+  const mins = (id: string, n: number) => Math.round(workMins(J[id], id.startsWith('craft') ? kc : s.eco.know.soft ?? 0, tr, s.eco.fatigue) * n * (s.eco.buy?.bench ? bal.spend.benchK : 1));
   const out: Act[] = [
     { id: 'craftSmall', label: '小物を4つ作る', sub: `材料4個・${mins('craftSmall', 4)}分（材料 ${tr.mats}個）`, ok: tr.mats >= 4, why: '材料が足りない。道具屋で買える' },
     { id: 'craftOrder', label: '注文品を1つ作る', sub: fameOf(tr, 'craft') < J.craftOrder.fame ? `知名度 ${J.craftOrder.fame} から注文が届く（いま ${fameOf(tr, 'craft')}）` : `材料6個・${mins('craftOrder', 1)}分`, ok: fameOf(tr, 'craft') >= J.craftOrder.fame && tr.mats >= 6, why: fameOf(tr, 'craft') < J.craftOrder.fame ? 'まだ注文が届かない' : '材料が足りない' },
     { id: 'rest', label: '2時間 休む', sub: `疲れ ${Math.round(s.eco.fatigue)}`, ok: s.eco.fatigue > 0, why: '疲れていない' },
   ];
+  // 家具を買う：寝る・休む・作る・開発が良くなる
+  const B = bal.spend;
+  const have = bought(s);
+  const fur = (id: string, key: string, label: string, cost: number, sub: string): Act => ({ id, label, sub: have[key] ? '買ってある' : `${yen(cost)}／${sub}`, ok: !have[key] && s.cash + Math.max(0, s.bank) >= cost, why: have[key] ? '買ってある' : '表のお金が足りない' });
+  out.push(fur('buyBed', 'bed', 'いいベッドに替える', B.bed, `寝ると、疲れが ${bal.self.sleep} → ${bal.self.sleep + B.bedGain} 取れる`));
+  out.push(fur('buyBench', 'bench', '作業台を広げる', B.bench, `手作りの時間が ${Math.round(B.benchK * 100)}% になる`));
+  out.push(fur('buyChair', 'chair', 'いい椅子と画面を買う', B.chair, `開発の進みが ${Math.round(B.chairK * 100)}% になる`));
+  out.push(fur('buyTv', 'tv', 'テレビとゲーム機を買う', B.tv, `休むと、疲れが ${bal.self.restPerHour * 2} → ${bal.self.restPerHour * 2 + B.tvGain} 取れる`));
   const S = bal.soft;
   const fame = fameOf(tr, 'soft');
   const month = monthOf(s.eco, bal);
@@ -821,7 +854,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
     offerBids(s.tr, firmsOf(city), mr, bal, s.firm.permits, rankIndex(s.eco.credit));
     if (s.firm.pool.length) out.rec.notes.push(`求人に ${s.firm.pool.length}人 の応募が来た`);
     for (const z of s.biz) {
-      z.aware = Math.max(0, z.aware - bal.shop.awareDecay);
+      z.aware = Math.max(0, z.aware - bal.shop.awareDecay * (z.up?.sign ? 0.5 : 1));
       z.m = { cust: 0, lost: 0, sales: 0, cost: 0 };
     }
     s.tr.pc = s.laptop;
@@ -1087,6 +1120,14 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       q.wage = Math.round((q.wage * 1.05) / 100) * 100;
       q.mood = Math.max(0, q.mood - T.raise);
       q.quiet = 0;
+    } else if (q && cmd.act === 'bonus') {
+      const cost = q.wage * bal.spend.bonusDays;
+      if (payBiz(s, cost)) {
+        s.eco.m.cost += cost;
+        q.mood = Math.max(0, q.mood - bal.spend.bonusMood);
+        q.quiet = 0;
+        toast(`${q.name}にボーナスを出した（${yen(cost)}）`, 'good');
+      } else toast('お金が足りない');
     } else if (q && cmd.act === 'talk') {
       labor(s, city, 60, '', bal, ev);
       q.mood = Math.max(0, q.mood - T.talk);
@@ -1365,7 +1406,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const now = s.clock % 1440;
       skip(s, city, (now < 420 ? 420 - now : 1440 - now + 420), bal, ev);
       s.heat = Math.max(0, s.heat - 60);
-      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.sleep);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.sleep - (s.eco.buy?.bed ? bal.spend.bedGain : 0));
       toast('よく寝た', 'good');
       break;
     }
@@ -1422,7 +1463,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'craftOrder': {
       const job = bal.jobs[cmd.act];
       const n = cmd.act === 'craftSmall' ? 4 : 1;
-      const mins = workMins(job, s.eco.know.craft ?? 0, s.tr, s.eco.fatigue) * n * slow;
+      const mins = Math.round(workMins(job, s.eco.know.craft ?? 0, s.tr, s.eco.fatigue) * n * (s.eco.buy?.bench ? bal.spend.benchK : 1)) * slow;
       if (good) s.tr.q.sum += bal.self.handGood * n; // 上出来：この品の品質 +5（売ったときの平均に入る）
       s.tr.mats -= job.mat * n;
       s.tr.stock[cmd.act] = (s.tr.stock[cmd.act] ?? 0) + n;
@@ -1476,9 +1517,74 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     }
     case 'rest':
       skip(s, city, 120, bal, ev);
-      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.restPerHour * 2);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.restPerHour * 2 - (s.eco.buy?.tv ? bal.spend.tvGain : 0));
       toast('ひと休みした');
       break;
+    case 'buyBed':
+    case 'buyBench':
+    case 'buyChair':
+    case 'buyTv': {
+      const key = cmd.act.slice(3).toLowerCase();
+      const cost = bal.spend[key as 'bed' | 'bench' | 'chair' | 'tv'];
+      if (bought(s)[key] || !payClean(s, cost)) break;
+      bought(s)[key] = 1;
+      toast('買った。部屋が良くなった', 'good');
+      ev.push({ type: 'sfx', name: 'ok' });
+      break;
+    }
+    case 'snack': {
+      const have = bought(s);
+      if (have.snackDay !== dayOf(s)) {
+        have.snackDay = dayOf(s);
+        have.snackN = 0;
+      }
+      if ((have.snackN ?? 0) >= bal.spend.snackMax || !pay(s, bal.spend.snack, false)) break;
+      have.snackN = (have.snackN ?? 0) + 1;
+      skip(s, city, 15, bal, ev);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.spend.snackGain);
+      toast(`ひと息ついた。疲れ ${Math.round(s.eco.fatigue)}`);
+      break;
+    }
+    case 'course': {
+      // 講座：いちばん使っている業種の知識が上がる（上限まで）
+      const B = bal.spend;
+      const k = Object.entries(s.eco.know).filter(([, v]) => v < B.courseMax).sort((a, b2) => b2[1] - a[1])[0]?.[0];
+      if (!k || !payClean(s, B.course)) break;
+      labor(s, city, B.courseHours * 60, '', bal, ev);
+      s.eco.know[k] = Math.min(B.courseMax, (s.eco.know[k] ?? 0) + B.courseGain);
+      toast(`講座を受けた。${TRADE_NAME[k] ?? k}の知識 ${Math.floor(s.eco.know[k])}`, 'good');
+      break;
+    }
+    case 'upSign':
+    case 'upDeco':
+    case 'upGear': {
+      const z = s.biz.find((x) => x.poi === p.id);
+      if (!z) break;
+      const key = cmd.act === 'upSign' ? 'sign' : cmd.act === 'upDeco' ? 'deco' : 'gear';
+      const up = (z.up ??= {});
+      if (up[key] || !payBiz(s, bal.spend[key])) break;
+      up[key] = true;
+      s.eco.m.cost += bal.spend[key];
+      if (key === 'sign') z.aware = Math.min(100, z.aware + bal.spend.signAware);
+      toast(key === 'sign' ? '看板を出した' : key === 'deco' ? '店を改装した' : '設備を入れた', 'good');
+      break;
+    }
+    case 'rocket': {
+      const B = bal.spend;
+      const st = bought(s).rocket ?? 0;
+      const cost = [B.rocket1, B.rocket2, B.rocket3, B.rocket4][st];
+      if (st >= 4 || !s.eco.corp || rankIndex(s.eco.credit) < (st === 3 ? B.launchRank : B.rocketRank) || !payBiz(s, cost)) break;
+      s.eco.m.cost += cost;
+      bought(s).rocket = st + 1;
+      if (st === 3) {
+        toast('打ち上げは成功した。自社のロケットが、宇宙へ届いた', 'good');
+        ev.push({ type: 'rocket' }, { type: 'sfx', name: 'bigcoin' });
+      } else {
+        toast(`${ROCKET[st].replace(/を.*$/, '')}ができた。次は「${ROCKET[st + 1]}」`, 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      }
+      break;
+    }
     case 'devSmall':
     case 'devMid':
     case 'devTool':
@@ -1559,7 +1665,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const job = bal.jobs[pj.job];
       const know = s.eco.know.soft ?? 0;
       labor(s, city, 240 * slow, 'soft', bal, ev);
-      pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.tr.oldPc ? bal.soft.oldPc : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
+      pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.tr.oldPc ? bal.soft.oldPc : 1) * (s.eco.buy?.chair ? bal.spend.chairK : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
       if (pj.hours >= devHours(job, bal)) release(s, bal, ev);
       break;
     }

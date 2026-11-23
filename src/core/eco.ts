@@ -27,6 +27,7 @@ export interface Eco {
   owed: Bill[]; // 待ってもらっている支払い。次の月末にも払えないと倒産
   tax: { amount: number; due: number; corp?: boolean }[]; // 決まった税と、納める月
   corp: Corp | null; // 法人にしたあとの会社（null＝個人事業）
+  buy?: Record<string, number>; // 買った物（家具：bed・bench・chair・tv、ロケットの段：rocket、きょう買った弁当：snackDay・snackN）
   yearProfit: number; // 今年のもうけ（税の計算に使う）
   m: { sales: number; cost: number; job?: number }; // 今月の売上と、原価・経費、アルバイトの給料
   free: number; indep: number; // アルバイトをせずに、お金が減らなかった月の続き。独立できた月（まだなら -1）
