@@ -1,47 +1,21 @@
-// 数値の表（balance.json）の形と範囲。読み込むときに必ず検査する。
+// 数値の表の検査。数値はコードに直接書かず、balance.json に置く。
 import { z } from 'zod';
 import raw from './balance.json';
 
-const pos = z.number().positive();
-const nonneg = z.number().min(0);
-const int = z.number().int();
-
-const craftJob = z.object({
-  mat: nonneg, price: pos, cut: pos, assemble: pos, finish: pos,
-  qtyMin: int.min(1), qtyMax: int.min(1), dueMin: int.min(1), dueMax: int.min(1),
-  capBase: nonneg, capFame: nonneg, fameWeight: pos,
-  fameFrom: nonneg.optional(), capMax: pos.optional(),
-});
-const handyJob = z.object({
-  mat: nonneg, price: pos, work: pos, move: nonneg,
-  dueMin: int.min(1), dueMax: int.min(1),
-  capBase: nonneg, capFame: nonneg, fameWeight: pos,
-  fameFrom: nonneg.optional(), capMax: pos.optional(),
-});
-const devWork = z.object({ hours: pos, price: pos, base: nonneg, perFame: nonneg, tail: z.number().min(0).max(0.95) });
+const n = z.number().finite();
+const pos = n.positive();
+const rec = (keys: string[]) => z.object(Object.fromEntries(keys.map((k) => [k, n])) as Record<string, typeof n>);
 
 export const BalanceSchema = z.object({
-  version: int,
-  time: z.object({ slotsPerDay: int.min(8).max(24), firstHour: int.min(0).max(12), daysPerMonth: int.min(7), maxWorkSlots: int.min(1), endMonth: int.min(1) }),
-  player: z.object({ startCash: nonneg, living: pos, restartCash: nonneg }),
-  job: z.object({ wage: pos, hours: int.min(1), startSlot: int.min(0) }),
-  helper: z.object({ wage: pos, slowFactor: z.number().min(1), habitHours: pos, max: int.min(0), candidatesPerMonth: int.min(0) }),
-  mats: z.object({ unitPrice: pos, perTrip: int.min(1), startTarget: int.min(0) }),
-  offer: z.object({ answerDays: int.min(1), fluct: z.number().min(0).max(0.5) }),
-  quality: z.object({ great: pos, ok: pos, redo: pos, greatFame: nonneg, failFame: nonneg, idleFame: nonneg }),
-  craft: z.object({ tool: z.object({ price: pos, assembleFactor: z.number().min(0.1).max(1) }), sellBonus: int.min(0), small: craftJob, order: craftJob, fameDiv: pos }),
-  handy: z.object({ tool: z.object({ price: pos }), sellBonus: int.min(0), tidy: handyJob, clean: handyJob, fameDiv: pos }),
-  dev: z.object({
-    fee: z.number().min(0).max(0.9), fameCap: pos, soldPerFame: pos, hitMin: pos, hitMax: pos,
-    outsource: z.object({ price: pos, timeFactor: z.number().min(0.1).max(1), salesFactor: z.number().min(1) }),
-    small: devWork, normal: devWork,
-  }),
+  world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
+  move: z.object({ walk: pos, bike: pos, car: pos, accel: pos, brake: pos, drag: pos, offroad: pos.max(1) }),
+  time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23) }),
+  money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate']),
+  biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
+  heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
+  police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),
+  crime: rec(['lootMin', 'lootMax', 'hackMin', 'hackMax', 'robMin', 'robMax', 'chopMin', 'chopMax', 'houseDays', 'atmDays', 'bankDays']),
+  traffic: rec(['cars', 'parked', 'peds', 'radius', 'arterialSpeed', 'minorSpeed']),
 });
-
 export type Balance = z.infer<typeof BalanceSchema>;
-
-export function parseBalance(data: unknown): Balance {
-  return BalanceSchema.parse(data);
-}
-
-export const balance: Balance = parseBalance(raw);
+export const balance: Balance = BalanceSchema.parse(raw);

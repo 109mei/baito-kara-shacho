@@ -1,34 +1,11 @@
 {
-  "version": 1,
-  "time": { "slotsPerDay": 16, "firstHour": 6, "daysPerMonth": 30, "maxWorkSlots": 12, "endMonth": 24 },
-  "player": { "startCash": 100000, "living": 105000, "restartCash": 100000 },
-  "job": { "wage": 1100, "hours": 5, "startSlot": 3 },
-  "helper": { "wage": 1100, "slowFactor": 1.5, "habitHours": 40, "max": 2, "candidatesPerMonth": 2 },
-  "mats": { "unitPrice": 100, "perTrip": 100, "startTarget": 40 },
-  "offer": { "answerDays": 3, "fluct": 0.1 },
-  "quality": { "great": 0.9, "ok": 1, "redo": 1.2, "greatFame": 0.2, "failFame": 2, "idleFame": 1 },
-  "craft": {
-    "tool": { "price": 60000, "assembleFactor": 0.5 },
-    "sellBonus": 10,
-    "small": { "mat": 2, "price": 800, "cut": 8, "assemble": 20, "finish": 7, "qtyMin": 5, "qtyMax": 10, "dueMin": 4, "dueMax": 7, "capBase": 40, "capFame": 0.5, "fameWeight": 1 },
-    "order": { "mat": 8, "price": 3800, "cut": 25, "assemble": 70, "finish": 30, "qtyMin": 1, "qtyMax": 3, "dueMin": 5, "dueMax": 9, "fameFrom": 20, "capBase": 10, "capFame": 0.5, "capMax": 60, "fameWeight": 3 },
-    "fameDiv": 10
-  },
-  "handy": {
-    "tool": { "price": 60000 },
-    "sellBonus": 3,
-    "tidy": { "mat": 0, "price": 3500, "work": 120, "move": 60, "dueMin": 2, "dueMax": 5, "capBase": 6, "capFame": 0.3334, "fameWeight": 1 },
-    "clean": { "mat": 5, "price": 9000, "work": 150, "move": 60, "dueMin": 3, "dueMax": 6, "fameFrom": 10, "capBase": 4, "capFame": 0.5, "capMax": 30, "fameWeight": 2 },
-    "fameDiv": 3
-  },
-  "dev": {
-    "fee": 0.3,
-    "fameCap": 40,
-    "soldPerFame": 40,
-    "hitMin": 0.8,
-    "hitMax": 1.2,
-    "outsource": { "price": 80000, "timeFactor": 0.75, "salesFactor": 1.3 },
-    "small": { "hours": 120, "price": 500, "base": 30, "perFame": 3, "tail": 0.5 },
-    "normal": { "hours": 400, "price": 1200, "base": 60, "perFame": 8, "tail": 0.6 }
-  }
+  "world": { "size": 8000, "arterialHalf": 13, "minorHalf": 6, "riverHalf": 75 },
+  "move": { "walk": 6.5, "bike": 12, "car": 27, "accel": 14, "brake": 30, "drag": 9, "offroad": 0.45 },
+  "time": { "minutesPerSecond": 2, "startHour": 8 },
+  "money": { "startCash": 30000, "living": 3500, "wageConbini": 1100, "wageWarehouse": 1400, "shiftHours": 4, "bike": 18000, "car": 350000, "crowbar": 4000, "laptop": 90000, "pawnRate": 0.6 },
+  "biz": { "stall": 120000, "stallProfit": 7000, "shop": 600000, "shopProfit": 30000, "upgradeFactor": 0.8, "levelProfit": 0.5, "maxLevel": 5 },
+  "heat": { "perStar": 20, "decay": 1.4, "stealSeen": 26, "stealUnseen": 8, "hitPed": 15, "hitPolice": 18, "burgleQuiet": 6, "burgleLoud": 32, "burgleDay": 14, "hackFail": 35, "hackOk": 5, "rob": 86, "fine": 1500, "jailHoursPerStar": 6, "confiscate": 0.3 },
+  "police": { "sight": 170, "speed": 24.5, "hunterSpeed": 28.5, "catchDist": 7, "catchSpeed": 3, "catchTime": 0.9, "patrols": 2, "chasers": [0, 1, 2, 3, 5, 6], "hunters": 2 },
+  "crime": { "lootMin": 15000, "lootMax": 70000, "hackMin": 60000, "hackMax": 140000, "robMin": 350000, "robMax": 650000, "chopMin": 40000, "chopMax": 90000, "houseDays": 4, "atmDays": 2, "bankDays": 3 },
+  "traffic": { "cars": 26, "parked": 12, "peds": 22, "radius": 620, "arterialSpeed": 15, "minorSpeed": 9 }
 }

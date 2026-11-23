@@ -1,44 +1,32 @@
-// 保存の窓口。保存と読み込みはここだけを通す。版番号を付け、古い版は新しい版へ変換する。
-import { SAVE_VERSION } from '../core/game';
-import type { GameState } from '../core/types';
+// 保存の窓口は、ここ1つだけ。版番号を付け、古い版は新しい版へ変換する。
+import { SAVE_VERSION, type SaveData } from '../core/sim';
 
-const KEY = 'baito-kara-shacho/save';
+const KEY = 'baito-kara-shacho/open/save';
+const PREFS_KEY = 'baito-kara-shacho/prefs';
 
-interface SaveFile {
-  v: number;
-  savedAt: string;
-  state: GameState;
-}
-
-/** 古い版のセーブを、いまの版の形に直す */
-export function migrate(file: { v?: number; state?: unknown }): GameState | null {
-  if (!file || typeof file !== 'object' || !file.state) return null;
-  const s = file.state as GameState & Record<string, unknown>;
-  const v = typeof file.v === 'number' ? file.v : 0;
-  if (v > SAVE_VERSION) return null;
-  // v0 → v1：おまかせの設定がなかった
-  if (v < 1 && typeof s.autoQuality !== 'boolean') s.autoQuality = false;
-  s.v = SAVE_VERSION;
-  if (typeof s.day !== 'number' || typeof s.cash !== 'number' || !s.biz || !s.templates) return null;
-  return s;
+function migrate(raw: unknown): SaveData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as Partial<SaveData>;
+  if (typeof d.v !== 'number' || typeof d.seed !== 'number' || typeof d.x !== 'number') return null;
+  // 版が上がったら、ここで古い形を新しい形へ直す
+  if (d.v > SAVE_VERSION) return null;
+  return d as SaveData;
 }
 
 export const SaveStore = {
-  save(state: GameState): boolean {
-    try {
-      const file: SaveFile = { v: SAVE_VERSION, savedAt: new Date().toISOString(), state };
-      localStorage.setItem(KEY, JSON.stringify(file));
-      return true;
-    } catch {
-      return false; // 保存できない環境でも、遊びは止めない
-    }
-  },
-  load(): GameState | null {
+  load(): SaveData | null {
     try {
       const raw = localStorage.getItem(KEY);
       return raw ? migrate(JSON.parse(raw)) : null;
     } catch {
       return null;
+    }
+  },
+  save(d: SaveData) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(d));
+    } catch {
+      /* 保存できない環境でも、遊びは止めない */
     }
   },
   clear() {
@@ -48,31 +36,29 @@ export const SaveStore = {
       /* 何もしない */
     }
   },
-  exportText(state: GameState): string {
-    const file: SaveFile = { v: SAVE_VERSION, savedAt: new Date().toISOString(), state };
-    return btoa(unescape(encodeURIComponent(JSON.stringify(file))));
+  exportText(d: SaveData): string {
+    return JSON.stringify(d);
   },
-  importText(text: string): GameState | null {
+  importText(text: string): SaveData | null {
     try {
-      return migrate(JSON.parse(decodeURIComponent(escape(atob(text.trim())))));
+      return migrate(JSON.parse(text));
     } catch {
       return null;
     }
   },
 };
 
-// 遊び方の好み（音・動き）。ゲームの進み具合とは別に持つ
+// 遊び方の好み（音・動き）
 export interface Prefs {
   sound: boolean;
-  calm: boolean; // 動きを少なくする
+  calm: boolean;
 }
-const PREFS_KEY = 'baito-kara-shacho/prefs';
 export function loadPrefs(): Prefs {
   let calm = false;
   try {
     calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   } catch {
-    /* 調べられない環境では、ふつうの動きにする */
+    /* 調べられなければ、ふつうの動き */
   }
   try {
     const raw = localStorage.getItem(PREFS_KEY);
@@ -89,6 +75,6 @@ export function savePrefs(p: Prefs) {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(p));
   } catch {
-    /* 保存できない環境でも、遊びは止めない */
+    /* 何もしない */
   }
 }
