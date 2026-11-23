@@ -29,11 +29,12 @@ export interface Eco {
   plan: number; // 計画した月の売上（0＝計画なし）
   infl: number; // 物価（年に 2% 上がる）
   know: Record<string, number>; // 業種ごとの知識（0〜100）
+  fatigue: number; // 疲れ（0〜100）
   hist: MonthRec[];
 }
 
 export const newEco = (bal: Balance): Eco => ({
-  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, hist: [],
+  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, hist: [],
 });
 
 export const RANKS = ['E', 'D', 'C', 'B', 'A'] as const;

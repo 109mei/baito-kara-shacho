@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 
 export type District = 'downtown' | 'commercial' | 'residential' | 'industrial' | 'park' | 'water';
-export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house' | 'hideout' | 'gang' | 'jewel';
+export type PoiKind = 'home' | 'conbini' | 'warehouse' | 'bike' | 'car' | 'tool' | 'pawn' | 'chop' | 'bank' | 'police' | 'lot' | 'atm' | 'house' | 'hideout' | 'gang' | 'jewel' | 'market' | 'office' | 'apart';
 export interface Poi { id: number; kind: PoiKind; x: number; y: number; district: District; traffic: number }
 export interface Block { i: number; j: number; x0: number; y0: number; x1: number; y1: number; d: District; b: Float32Array }
 export interface City {
@@ -230,6 +230,10 @@ export function makeCity(seed: number, bal: Balance): City {
   for (let t = 0; t < 6; t++) take('gang', 1, (b) => turfOf(S, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2) === t && centerDist(b) > 900 && !nearHome(b, 700), 0);
   take('hideout', 6, (b) => res(b) || b.d === 'industrial', 1500);
   take('jewel', 3, com, 1500); // 後から足した場所は、番号がずれないように最後に置く
+  take('market', 1, (b) => nearHome(b, 1300), 0);
+  take('market', 4, (b) => com(b) || res(b), 1700);
+  take('office', 3, com, 2200);
+  take('apart', 8, res, 800);
 
   return { seed, size: S, xs, ys, ax, ay, h, v, ok, blocks, pois, home, bridges: [...bridgeSet], half, coast, river };
 }

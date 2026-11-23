@@ -28,7 +28,7 @@ const withExit = (r: Room): Room => ({ ...r, spots: [...r.spots, ...(r.back ? [{
 export function roomOf(kind: PoiKind, owned: boolean): Room | null {
   switch (kind) {
     case 'home':
-      return withExit({ w: 10, h: 8, floor: 'wood', f: [F('bed', 0.5, 0.5, 2.1, 3.1), F('desk', 7.3, 0.5, 2.2, 1.1), F('tv', 3.9, 0.45, 1.9, 0.5), F('rug', 3.1, 2.1, 3.6, 2.2), F('sofa', 3.6, 3.3, 2.6, 1.0), F('fridge', 0.5, 5.4, 1.0, 1.0), F('table', 7.2, 4.4, 1.7, 1.7), F('plant', 9.0, 6.9, 0.6, 0.6), F('plant', 0.5, 6.9, 0.6, 0.6)], spots: [{ x: 3.1, y: 2.0, label: 'ベッド', acts: ['sleep', 'nap'] }] });
+      return withExit({ w: 10, h: 8, floor: 'wood', f: [F('bed', 0.5, 0.5, 2.1, 3.1), F('desk', 7.3, 0.5, 2.2, 1.1), F('tv', 3.9, 0.45, 1.9, 0.5), F('rug', 3.1, 2.1, 3.6, 2.2), F('sofa', 3.6, 3.3, 2.6, 1.0), F('fridge', 0.5, 5.4, 1.0, 1.0), F('table', 7.2, 4.4, 1.7, 1.7), F('plant', 9.0, 6.9, 0.6, 0.6), F('plant', 0.5, 6.9, 0.6, 0.6)], spots: [{ x: 3.1, y: 2.0, label: 'ベッド', acts: ['sleep', 'nap'] }, { x: 6.5, y: 5.2, label: '作業台', acts: ['craftSmall', 'craftOrder'] }, { x: 8.4, y: 2.2, label: '机とPC', acts: ['devSmall', 'devMid', 'dev', 'devOut'] }, { x: 4.9, y: 4.9, label: 'ソファ', acts: ['rest'] }] });
     case 'conbini':
       return withExit({
         w: 12, h: 9, floor: 'tile', heist: 'conbini',
@@ -44,7 +44,7 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
     case 'car':
       return withExit({ w: 15, h: 10, floor: 'tile', f: [F('car', 1.2, 1.0, 2.2, 4.6), F('car', 4.8, 1.0, 2.2, 4.6), F('rug', 0.8, 0.7, 6.6, 5.2), F('desk', 10.8, 1.8, 2.6, 1.2), F('clerk', 11.7, 0.8, 0.8, 0.8), F('plant', 14.0, 8.9, 0.6, 0.6), F('sofa', 10.6, 6.4, 2.6, 1.0)], spots: [{ x: 12.1, y: 3.7, label: '中古車を買う', acts: ['buyCar'] }] });
     case 'tool':
-      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['crowbar', 'lockpick', 'laptop', 'drill'] }] });
+      return withExit({ w: 11, h: 8, floor: 'concrete', f: [F('shelf', 0.6, 0.6, 0.9, 5.0), F('shelf', 2.6, 1.2, 0.9, 4.0), F('shelf', 4.6, 1.2, 0.9, 4.0), F('goods', 0.6, 6.4, 3.4, 0.8), F('counter', 7.4, 1.6, 2.8, 1.0), F('clerk', 8.4, 0.6, 0.8, 0.8)], spots: [{ x: 8.8, y: 3.3, label: '道具を買う', acts: ['mats', 'power', 'washer', 'crowbar', 'lockpick', 'laptop', 'drill'] }] });
     case 'pawn':
       return withExit({ w: 9, h: 7, floor: 'carpet', f: [F('counter', 0.6, 1.7, 7.8, 0.9), F('clerk', 4.1, 0.7, 0.8, 0.8), F('safe', 0.7, 0.5, 1.0, 1.0), F('safe', 7.3, 0.5, 1.0, 1.0), F('goods', 0.6, 4.6, 0.8, 1.6), F('goods', 7.6, 4.6, 0.8, 1.6)], spots: [{ x: 4.5, y: 3.3, label: '裏の取引', acts: ['sell', 'wash', 'gun'] }] });
     case 'jewel':
@@ -92,6 +92,14 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
       return owned
         ? withExit({ w: 10, h: 7, floor: 'concrete', f: [F('bed', 0.5, 0.5, 2.0, 3.0), F('safe', 8.4, 0.5, 1.1, 1.1), F('table', 4.2, 2.4, 1.8, 1.4), F('box', 0.6, 5.0, 1.6, 1.4), F('tv', 4.2, 0.45, 1.8, 0.5), F('rug', 3.4, 1.8, 3.4, 2.6)], spots: [{ x: 3.0, y: 1.9, label: 'ベッド', acts: ['sleep', 'nap'] }, { x: 8.6, y: 2.2, label: '金庫', acts: ['stashIn', 'stashOut'] }] })
         : withExit({ w: 10, h: 7, floor: 'concrete', f: [F('box', 0.6, 0.6, 1.8, 1.6), F('box', 7.6, 4.6, 1.6, 1.4)], spots: [{ x: 5.0, y: 2.8, label: 'ここをアジトにする', acts: ['buyHide'] }] });
+    case 'market':
+      // 売り場（品をあずけて売ってもらう店）
+      return withExit({ w: 11, h: 8, floor: 'wood', f: [F('goods', 0.6, 0.6, 4.6, 0.9), F('goods', 0.6, 2.6, 3.4, 0.9), F('goods', 0.6, 4.6, 3.4, 0.9), F('counter', 7.2, 1.6, 2.8, 1.0), F('clerk', 8.2, 0.6, 0.8, 0.8), F('rug', 4.6, 5.2, 3.2, 1.8), F('plant', 10.0, 6.9, 0.6, 0.6)], spots: [{ x: 8.6, y: 3.3, label: '売り場の人', acts: ['sellGoods', 'pitchCraft', 'pitchHandy'] }] });
+    case 'office':
+      // 窓口（役所と商工会）
+      return withExit({ w: 12, h: 8, floor: 'tile', f: [F('counter', 2.6, 1.9, 6.8, 1.0), F('clerk', 4.2, 0.8, 0.8, 0.8), F('clerk', 7.2, 0.8, 0.8, 0.8), F('sofa', 0.6, 5.6, 2.4, 1.0), F('shelf', 10.6, 0.6, 0.9, 3.4), F('plant', 11.0, 6.9, 0.6, 0.6), F('plant', 0.5, 0.5, 0.6, 0.6)], spots: [{ x: 6.0, y: 3.6, label: '窓口', acts: ['advice'] }] });
+    case 'apart':
+      return withExit({ w: 9, h: 7, floor: 'wood', f: [F('desk', 3.4, 1.4, 2.4, 1.1), F('clerk', 4.2, 0.4, 0.8, 0.8), F('shelf', 0.5, 0.5, 0.9, 3.0), F('sofa', 5.8, 4.6, 2.4, 1.0), F('plant', 8.0, 0.5, 0.6, 0.6)], spots: [{ x: 4.6, y: 3.2, label: '管理人', acts: ['advice'] }] });
     case 'gang':
       if (owned) return withExit({ w: 12, h: 8, floor: 'concrete', f: [F('vault', 8.6, 0.5, 2.8, 2.2), F('bed', 0.5, 0.5, 2.0, 3.0), F('table', 4.4, 3.4, 2.4, 1.4), F('tv', 4.4, 0.45, 1.8, 0.5), F('box', 0.6, 5.4, 2.0, 1.6), F('rug', 3.6, 2.6, 4.0, 2.8)], spots: [{ x: 3.0, y: 1.9, label: 'ベッド', acts: ['sleep', 'nap'] }, { x: 10.0, y: 3.4, label: '金庫', acts: ['stashIn', 'stashOut'] }] });
       return withExit({ w: 12, h: 8, floor: 'concrete', f: [F('vault', 8.6, 0.5, 2.8, 2.2), F('table', 3.0, 2.8, 2.6, 1.5), F('sofa', 0.6, 0.6, 2.6, 1.0), F('box', 0.6, 5.4, 2.0, 1.6), F('goods', 4.0, 0.5, 3.0, 0.8), F('rug', 2.4, 2.2, 4.0, 2.8)], spots: [{ x: 10.0, y: 3.4, label: '金庫の中身をいただく', acts: ['seize'] }] });

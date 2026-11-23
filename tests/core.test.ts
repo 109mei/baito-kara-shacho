@@ -22,7 +22,7 @@ describe('街', () => {
     expect(city.xs.length).toBeGreaterThan(35);
     expect(city.blocks.filter((k) => k.b.length > 0).length).toBeGreaterThan(900);
     expect(city.pois.filter((p) => p.kind === 'gang').map((p) => turfOf(city.size, p.x, p.y)).sort()).toEqual([0, 1, 2, 3, 4, 5]);
-    for (const kind of ['home', 'conbini', 'warehouse', 'bike', 'car', 'tool', 'pawn', 'chop', 'bank', 'police', 'lot', 'atm', 'house', 'hideout', 'gang', 'jewel'] as const) {
+    for (const kind of ['home', 'conbini', 'warehouse', 'bike', 'car', 'tool', 'pawn', 'chop', 'bank', 'police', 'lot', 'atm', 'house', 'hideout', 'gang', 'jewel', 'market', 'office', 'apart'] as const) {
       expect(city.pois.filter((p) => p.kind === kind).length, kind).toBeGreaterThan(0);
     }
     expect(city.bridges.length).toBeGreaterThan(3);
@@ -153,7 +153,7 @@ describe('ルール', () => {
 
 describe('建物の中', () => {
   it('どの部屋も、入口からすべての行動できる場所へ歩いて行ける', () => {
-    for (const kind of ['home', 'conbini', 'warehouse', 'bike', 'car', 'tool', 'pawn', 'bank', 'police', 'lot', 'house', 'hideout', 'gang', 'jewel'] as const) {
+    for (const kind of ['home', 'conbini', 'warehouse', 'bike', 'car', 'tool', 'pawn', 'bank', 'police', 'lot', 'house', 'hideout', 'gang', 'jewel', 'market', 'office', 'apart'] as const) {
       for (const owned of [false, true]) {
         const room = roomOf(kind, owned)!;
         expect(room, kind).toBeTruthy();
@@ -613,9 +613,10 @@ describe('縄張りの勢力図', () => {
     s.y = tool.y;
     s.dirty = 1000000;
     apply(s, city, { type: 'enter', id: tool.id }, b);
-    const acts = roomFor(s, city)!.spots[0].acts!;
-    expect(acts).toEqual(['crowbar', 'lockpick', 'laptop', 'drill']);
-    expect(acts.every((a) => poiActions(s, city, tool, b).some((x) => x.id === a))).toBe(true);
+    const all = roomFor(s, city)!.spots[0].acts!;
+    expect(all.every((a) => poiActions(s, city, tool, b).some((x) => x.id === a))).toBe(true); // 札に出る物は、全部買える物
+    const acts = ['crowbar', 'lockpick', 'laptop', 'drill'];
+    expect(acts.every((a) => all.includes(a))).toBe(true);
     for (const a of acts) apply(s, city, { type: 'poi', id: tool.id, act: a }, b);
     expect([s.crowbar, s.lockpick, s.laptop, s.drill]).toEqual([true, true, true, true]);
     apply(s, city, { type: 'leave' }, b);

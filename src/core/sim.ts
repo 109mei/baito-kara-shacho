@@ -2,7 +2,8 @@
 // 書き換えは「命令」（apply）と「1コマ進める」（step）だけで行う。乱数は種つき。
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
-import { addCredit, capCredit, closeMonth, learn, newEco, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
+import { addCredit, capCredit, closeMonth, learn, monthOf, newEco, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
+import { endMonth, fameOf, firstUnits, left, newTr, pitch, quality, record, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -33,6 +34,7 @@ export interface GameState {
   // 強盗の道具：ピッキング道具、ドリル、手に入れた鍵（場所の番号）
   lockpick: boolean; drill: boolean; keys: number[];
   eco: Eco; // 経営のお金（月末の締め・信用・借入・税）
+  tr: Tr; // 商売（仕事の枠・知名度・届いた話・作品）
   inside: Inside | null;
 }
 // 建物の中にいるときの様子
@@ -69,12 +71,13 @@ export type Cmd =
   | { type: 'leave' }
   | { type: 'loot'; i: number }
   | { type: 'fire' }
+  | { type: 'gig'; id: number; take: boolean } // 届いた話を受ける・断る
   | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
 
-export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店' };
+export const POI_NAME: Record<PoiKind, string> = { home: '自宅', conbini: 'コンビニ', warehouse: '倉庫', bike: '自転車屋', car: '中古車屋', tool: '道具屋', pawn: '質屋', chop: '解体屋', bank: '銀行', police: '警察署', lot: '空き店舗', atm: 'ATM', house: '留守の家', hideout: '空き倉庫', gang: '敵のアジト', jewel: '宝石店', market: '売り場', office: '窓口', apart: 'アパート' };
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`;
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -89,14 +92,16 @@ function rnd(s: GameState): number {
 }
 
 export function createGame(seed: number, city: City, bal: Balance): GameState {
-  return {
+  const s: GameState = {
     seed, rng: (seed ^ 0x9e3779b9) >>> 0, t: 0, clock: bal.time.startHour * 60,
     x: city.home.x, y: city.home.y + 4, a: Math.PI / 2, ride: null,
     cash: bal.money.startCash, dirty: 0, bank: 0, loot: 0, heat: 0, record: 0,
     crowbar: false, laptop: false, biz: [], cool: {}, way: null, route: [],
     cars: [], peds: [], nextId: 1, seen: false, catchT: 0, hitCd: 0, spawnT: 0, earned: 0, crimes: 0, inside: null,
-    hp: 100, gun: false, hide: null, stash: 0, turf: [0, 1, 2, 1, 2, 0], hostile: 0, fireCd: 0, warnCd: 0, thugs: [], shots: [], lockpick: false, drill: false, keys: [], eco: newEco(bal),
+    hp: 100, gun: false, hide: null, stash: 0, turf: [0, 1, 2, 1, 2, 0], hostile: 0, fireCd: 0, warnCd: 0, thugs: [], shots: [], lockpick: false, drill: false, keys: [], eco: newEco(bal), tr: newTr(),
   };
+  startMonth(s.tr, 0, clientsOf(city), monthRng(seed, 0), bal); // 最初の月の枠と、届く話
+  return s;
 }
 
 export const stars = (s: GameState, bal: Balance) => (s.heat <= 0 ? 0 : Math.min(5, Math.ceil(s.heat / bal.heat.perStar)));
@@ -183,11 +188,24 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
   const h = hourOf(s);
   const cd = (s.cool[p.id] ?? 0) - dayOf(s);
   const car = riding(s);
+  const tr = s.tr;
   // 夜の仕事のために、夜まで時間を進める
   const NAP: Act = { id: 'nap', label: '夜まで休む', sub: '22時に起きる', ok: !s.seen && h >= 5 && h < 21, why: s.seen ? '警察に見られている' : 'もう夜' };
   switch (p.kind) {
     case 'home':
-      return [{ id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる', ok: !s.seen, why: '警察に見られている' }, NAP];
+      return [{ id: 'sleep', label: '朝まで寝る', sub: '手配度が下がる・疲れが取れる', ok: !s.seen, why: '警察に見られている' }, NAP, ...homeActs(s, bal)];
+    case 'market': {
+      const n = ['craftSmall', 'craftOrder'].reduce((a, id) => a + Math.min(tr.stock[id] ?? 0, left(tr, id)), 0);
+      const have = (tr.stock.craftSmall ?? 0) + (tr.stock.craftOrder ?? 0);
+      return [
+        { id: 'sellGoods', label: '作った品を納める', sub: have ? `${n}個 売れる（今月の枠の残り ${left(tr, 'craftSmall')}）` : '品を持っていない', ok: n > 0, why: have ? '今月の枠がいっぱい' : '品を持っていない' },
+        { id: 'pitchCraft', label: '品を売り込む', sub: '2時間・今月の枠 +10', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
+        { id: 'pitchHandy', label: '便利屋のチラシを置く', sub: '2時間・届く話 +3', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
+      ];
+    }
+    case 'office':
+    case 'apart':
+      return [{ id: 'advice', label: '聞きに行く', sub: '1時間', ok: h >= 9 && h < 17, why: '9時〜17時だけ' }];
     case 'conbini':
     case 'warehouse': {
       const wage = p.kind === 'conbini' ? m.wageConbini : m.wageWarehouse;
@@ -199,6 +217,9 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
       return [{ id: 'buyCar', label: '中古車を買う', sub: `${yen(m.car)}（きれいなお金）`, ok: s.cash >= m.car, why: 'きれいなお金が足りない' }];
     case 'tool':
       return [
+        { id: 'mats', label: '材料を10個買う', sub: `${yen(m.matPrice * 10)}／手作りの品（いま ${tr.mats}個）`, ok: s.cash + s.dirty >= m.matPrice * 10, why: 'お金が足りない' },
+        { id: 'power', label: '電動の道具を買う', sub: tr.power ? '持っている' : `${yen(m.power)}／作るのが速くなる・品質が上がる`, ok: !tr.power && s.cash + s.dirty >= m.power, why: tr.power ? '持っている' : 'お金が足りない' },
+        { id: 'washer', label: '洗浄の道具を買う', sub: tr.washer ? '持っている' : `${yen(m.washer)}／便利屋の高い仕事`, ok: !tr.washer && s.cash + s.dirty >= m.washer, why: tr.washer ? '持っている' : 'お金が足りない' },
         { id: 'crowbar', label: 'バールを買う', sub: s.crowbar ? '持っている' : `${yen(m.crowbar)}／こじ開ける（音が出る）`, ok: !s.crowbar && s.cash + s.dirty >= m.crowbar, why: s.crowbar ? '持っている' : 'お金が足りない' },
         { id: 'laptop', label: 'ノートPCを買う', sub: s.laptop ? '持っている' : `${yen(m.laptop)}／ATM・監視カメラ`, ok: !s.laptop && s.cash + s.dirty >= m.laptop, why: s.laptop ? '持っている' : 'お金が足りない' },
         { id: 'lockpick', label: 'ピッキング道具を買う', sub: s.lockpick ? '持っている' : `${yen(m.lockpick)}／鍵を静かに開ける`, ok: !s.lockpick && s.cash + s.dirty >= m.lockpick, why: s.lockpick ? '持っている' : 'お金が足りない' },
@@ -254,12 +275,56 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
     }
     case 'atm':
       return [{ id: 'hack', label: 'ハッキングする', sub: !s.laptop ? 'ノートPCが要る' : cd > 0 ? `対策中（あと${cd}日）` : 'うまくいけば大金', ok: s.laptop && cd <= 0, why: !s.laptop ? 'ノートPCが要る' : '対策中', mini: true, crime: true }];
-    case 'house':
-      return [{ id: 'break', label: 'こじ開けて入る', sub: cd > 0 ? `用心している（あと${cd}日）` : isNight(s) ? '夜は見つかりにくい' : '昼は見つかりやすい', ok: s.crowbar && cd <= 0, why: !s.crowbar ? 'バールが要る' : '用心している', mini: true, crime: true }];
+    case 'house': {
+      const g = tr.gigs.find((x) => x.taken && x.poi === p.id);
+      const out: Act[] = [];
+      if (g) {
+        const job = bal.jobs[g.job];
+        out.push({ id: 'gig', label: `${job.name}をする`, sub: `${workMins(job, s.eco.know.handy ?? 0, tr, s.eco.fatigue)}分・+${yen(job.price - job.mat)}`, ok: true });
+      }
+      out.push({ id: 'break', label: 'こじ開けて入る', sub: cd > 0 ? `用心している（あと${cd}日）` : isNight(s) ? '夜は見つかりにくい' : '昼は見つかりやすい', ok: s.crowbar && cd <= 0, why: !s.crowbar ? 'バールが要る' : '用心している', mini: true, crime: true });
+      return out;
+    }
   }
 }
 
 // ---- 建物の中
+// 聞きに行く：いまの数字の中から、気にしたほうがいい1つを、現実で使う言葉で一言だけ言う。どう直すかは言わない
+export function adviceOf(s: GameState, bal: Balance): string {
+  const e = s.eco;
+  const money = s.cash + Math.max(0, s.bank);
+  if (e.owed.length) return '「支払いが遅れていますね」';
+  if (money < monthLiving(s, bal)) return '「手元資金が、月の固定費を下回っていますね」';
+  if (e.fatigue > 70) return '「働きすぎですね。体が資本ですよ」';
+  if (e.loans.length && e.hist.length && e.loans.reduce((a, l) => a + l.pay, 0) > Math.max(1, e.hist[e.hist.length - 1].profit) * 0.5) return '「返済負担が重いですね」';
+  if (e.m.sales > 0 && e.m.cost / e.m.sales > 0.6) return '「原価率が高いね」';
+  if (e.credit < 200) return '「信用がまだ足りませんね。続けることです」';
+  if (s.tr.titles.length === 0 && Object.values(s.tr.used).every((n) => !n) && s.biz.length === 0) return '「まずは小さく始めてみては」';
+  return '「順調ですね。数字は毎月見ましょう」';
+}
+
+// 自宅でできる商売：手作りの品（作業台）、個人開発（机とPC）、休む
+function homeActs(s: GameState, bal: Balance): Act[] {
+  const tr = s.tr;
+  const m = bal.money;
+  const J = bal.jobs;
+  const kc = s.eco.know.craft ?? 0;
+  const mins = (id: string, n: number) => workMins(J[id], id.startsWith('craft') ? kc : s.eco.know.soft ?? 0, tr, s.eco.fatigue) * n;
+  const out: Act[] = [
+    { id: 'craftSmall', label: '小物を4つ作る', sub: `材料4個・${mins('craftSmall', 4)}分（材料 ${tr.mats}個）`, ok: tr.mats >= 4, why: '材料が足りない。道具屋で買える' },
+    { id: 'craftOrder', label: '注文品を1つ作る', sub: fameOf(tr, 'craft') < J.craftOrder.fame ? `知名度 ${J.craftOrder.fame} から注文が届く（いま ${fameOf(tr, 'craft')}）` : `材料6個・${mins('craftOrder', 1)}分`, ok: fameOf(tr, 'craft') >= J.craftOrder.fame && tr.mats >= 6, why: fameOf(tr, 'craft') < J.craftOrder.fame ? 'まだ注文が届かない' : '材料が足りない' },
+    { id: 'rest', label: '2時間 休む', sub: `疲れ ${Math.round(s.eco.fatigue)}`, ok: s.eco.fatigue > 0, why: '疲れていない' },
+  ];
+  if (!tr.proj) {
+    for (const id of ['softSmall', 'softMid']) out.push({ id: id === 'softSmall' ? 'devSmall' : 'devMid', label: `${J[id].name}を作り始める`, sub: s.laptop ? `${J[id].hours}時間・1本 ${yen(J[id].price)}・見込み ${firstUnits(J[id], fameOf(tr, 'soft'), false)}本` : 'ノートPCが要る', ok: s.laptop, why: 'ノートPCが要る。道具屋で買える' });
+  } else {
+    const job = J[tr.proj.job];
+    out.push({ id: 'dev', label: '4時間 作る', sub: `${job.name}　${Math.floor(tr.proj.hours)} / ${job.hours}時間`, ok: true });
+    out.push({ id: 'devOut', label: '絵と音を外に頼む', sub: tr.proj.out ? '頼んである' : `${yen(m.devOut)}／作る時間が4分の3・本数が1.3倍`, ok: !tr.proj.out && s.cash + s.dirty >= m.devOut, why: tr.proj.out ? '頼んである' : 'お金が足りない' });
+  }
+  return out;
+}
+
 // ---- 強盗（コンビニ・宝石店・銀行）
 export type HeistKind = 'conbini' | 'jewel' | 'bank';
 // 営業時間：コンビニはいつでも。宝石店は10〜19時、銀行は9〜17時。閉まっている間は店員がいない
@@ -395,7 +460,16 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   // 月末の締め：給料 → 家賃 → 返済 → 生活費 → 税 の順に払う。払えない物は来月へ回り、2か月続くと倒産
   s.eco.days += 1;
   if (s.eco.days % bal.time.daysPerMonth === 0) {
-    const out = closeMonth(s.eco, { cash: s.cash, bank: s.bank, living: monthLiving(s, bal), wages: 0, rent: 0, hasBiz: s.biz.length > 0 }, bal);
+    const ended = monthOf(s.eco, bal) - 1;
+    const active = s.biz.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
+    const me = endMonth(s.tr, ended, bal);
+    s.bank += me.income;
+    s.earned += me.income;
+    s.eco.m.sales += me.income;
+    if (s.tr.broken) addCredit(s.eco, -10 * s.tr.broken, bal); // 受けて守れなかった話は、信用も下げる
+    const out = closeMonth(s.eco, { cash: s.cash, bank: s.bank, living: monthLiving(s, bal), wages: 0, rent: 0, hasBiz: active }, bal);
+    out.rec.notes.push(...me.notes);
+    startMonth(s.tr, ended + 1, clientsOf(city), monthRng(s.seed, ended + 1), bal);
     s.cash = out.cash;
     s.bank = out.bank;
     if (out.bankrupt) {
@@ -417,6 +491,34 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   }
 }
 
+// 商売の枠と届く話のための乱数（月ごとに決まる。街や警察の乱数とは別にして、互いに影響しないようにする）
+const monthRng = (seed: number, k: number) => {
+  let x = (Math.imul(seed, 2654435761) + Math.imul(k + 1, 40503) + 12345) >>> 0;
+  return () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296;
+};
+// 客先（便利屋の話が届く家）：自宅から近い順に 24 軒
+const CLIENTS = new WeakMap<City, number[]>();
+export function clientsOf(city: City): number[] {
+  let c = CLIENTS.get(city);
+  if (!c) {
+    c = city.pois.filter((p) => p.kind === 'house').sort((a, b2) => Math.hypot(a.x - city.home.x, a.y - city.home.y) - Math.hypot(b2.x - city.home.x, b2.y - city.home.y)).slice(0, 24).map((p) => p.id);
+    CLIENTS.set(city, c);
+  }
+  return c;
+}
+// 働いた分だけ時間が進み、疲れがたまり、その業種の知識がつく。疲れ切ると、1日 休むことになる
+function labor(s: GameState, city: City, mins: number, field: string, bal: Balance, ev: Ev[]) {
+  skip(s, city, mins, bal, ev);
+  const e = s.eco;
+  const before = e.fatigue;
+  e.fatigue = Math.min(100, e.fatigue + (bal.self.tirePerHour * mins) / 60);
+  if (field) learn(e, field, mins / 240);
+  if (e.fatigue >= 100) {
+    skip(s, city, 1440, bal, ev);
+    e.fatigue = 60;
+    ev.push({ type: 'toast', text: '疲れて倒れた。1日 寝こんだ', tone: 'bad' });
+  } else if (e.fatigue >= bal.self.warn && before < bal.self.warn) ev.push({ type: 'toast', text: '疲れている。休まないと倒れる', tone: 'bad' });
+}
 // 月の生活費（家賃と食費など。物価で上がる）
 export const monthLiving = (s: GameState, bal: Balance) => Math.round(bal.money.living * bal.time.daysPerMonth * s.eco.infl);
 
@@ -507,6 +609,11 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     near.v = 0;
     s.ride = near.id;
     ev.push({ type: 'sfx', name: 'door' });
+    return ev;
+  }
+  if (cmd.type === 'gig') {
+    const g = s.tr.gigs.find((x) => x.id === cmd.id);
+    if (g) g.taken = cmd.take;
     return ev;
   }
   if (cmd.type === 'loan') {
@@ -734,7 +841,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     }
     if (q.kind === 'house') {
       // 留守の家：こじ開けて入る。静かに開けられたかどうかで、通報までの時間が変わる
-      if (!poiActions(s, city, q, bal)[0].ok) return ev;
+      if (!poiActions(s, city, q, bal).find((a) => a.id === 'break')?.ok) return ev;
       const quiet = (cmd.hits ?? 0) >= 2;
       s.cool[q.id] = dayOf(s) + bal.crime.houseDays;
       s.crimes += 1;
@@ -766,20 +873,21 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const now = s.clock % 1440;
       skip(s, city, (now < 420 ? 420 - now : 1440 - now + 420), bal, ev);
       s.heat = Math.max(0, s.heat - 60);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.sleep);
       toast('よく寝た', 'good');
       break;
     }
     case 'nap':
       skip(s, city, 22 * 60 - (s.clock % 1440), bal, ev);
       s.heat = Math.max(0, s.heat - 30);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.nap);
       toast('夜になった');
       break;
     case 'work': {
       const wage = (p.kind === 'conbini' ? m.wageConbini : m.wageWarehouse) * m.shiftHours;
-      skip(s, city, m.shiftHours * 60, bal, ev);
+      labor(s, city, m.shiftHours * 60, p.kind === 'conbini' ? 'retail' : 'logi', bal, ev); // 働くと、疲れがたまり、その業種の知識がつく
       s.cash += wage;
       s.earned += wage;
-      learn(s.eco, p.kind === 'conbini' ? 'retail' : 'logi', 1); // 働くと、その業種の知識がつく
       toast(`+${yen(wage)}`, 'good');
       ev.push({ type: 'sfx', name: 'coin' });
       break;
@@ -801,6 +909,109 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
         s.crowbar = true;
         toast('バールを買った。留守の家が地図に出る');
       }
+      break;
+    case 'mats':
+      if (pay(s, m.matPrice * 10, false)) {
+        s.tr.mats += 10;
+        s.eco.m.cost += m.matPrice * 10;
+        toast('材料を10個買った');
+      }
+      break;
+    case 'power':
+    case 'washer':
+      if (pay(s, m[cmd.act], false)) {
+        s.tr[cmd.act] = true;
+        s.eco.m.cost += m[cmd.act];
+        toast(cmd.act === 'power' ? '電動の道具を買った' : '洗浄の道具を買った');
+      }
+      break;
+    case 'craftSmall':
+    case 'craftOrder': {
+      const job = bal.jobs[cmd.act];
+      const n = cmd.act === 'craftSmall' ? 4 : 1;
+      const mins = workMins(job, s.eco.know.craft ?? 0, s.tr, s.eco.fatigue) * n;
+      s.tr.mats -= job.mat * n;
+      s.tr.stock[cmd.act] = (s.tr.stock[cmd.act] ?? 0) + n;
+      labor(s, city, mins, 'craft', bal, ev);
+      toast(`${job.name}を${n}つ作った。売り場へ持って行く`, 'good');
+      break;
+    }
+    case 'sellGoods': {
+      let total = 0;
+      for (const id of ['craftSmall', 'craftOrder']) {
+        const n = Math.min(s.tr.stock[id] ?? 0, left(s.tr, id));
+        if (n <= 0) continue;
+        s.tr.stock[id] -= n;
+        record(s.tr, id, n, quality(s.eco.know.craft ?? 0, s.tr.power, false));
+        total += n * bal.jobs[id].price;
+      }
+      s.cash += total;
+      s.earned += total;
+      s.eco.m.sales += total;
+      toast(`+${yen(total)}`, 'good');
+      ev.push({ type: 'sfx', name: 'coin' });
+      break;
+    }
+    case 'pitchCraft':
+    case 'pitchHandy': {
+      const trade = cmd.act === 'pitchCraft' ? 'craft' : 'handy';
+      labor(s, city, 120, trade, bal, ev);
+      pitch(s.tr, trade, monthOf(s.eco, bal), clientsOf(city), monthRng(s.seed, 1000 + s.tr.nextGig), bal);
+      toast(trade === 'craft' ? '売り込んだ。今月の枠が増えた' : 'チラシを置いた。話が届く', 'good');
+      break;
+    }
+    case 'gig': {
+      const g = s.tr.gigs.find((x) => x.taken && x.poi === p.id);
+      if (!g) break;
+      const job = bal.jobs[g.job];
+      const know = s.eco.know.handy ?? 0;
+      labor(s, city, workMins(job, know, s.tr, s.eco.fatigue), 'handy', bal, ev);
+      s.tr.gigs = s.tr.gigs.filter((x) => x !== g);
+      record(s.tr, g.job, 1, quality(know, s.tr.washer, false));
+      s.cash += job.price - job.mat;
+      s.earned += job.price - job.mat;
+      s.eco.m.sales += job.price;
+      s.eco.m.cost += job.mat;
+      toast(`${job.name}が終わった　+${yen(job.price - job.mat)}`, 'good');
+      ev.push({ type: 'sfx', name: 'coin' });
+      break;
+    }
+    case 'rest':
+      skip(s, city, 120, bal, ev);
+      s.eco.fatigue = Math.max(0, s.eco.fatigue - bal.self.restPerHour * 2);
+      toast('ひと休みした');
+      break;
+    case 'devSmall':
+    case 'devMid':
+      s.tr.proj = { job: cmd.act === 'devSmall' ? 'softSmall' : 'softMid', hours: 0, out: false };
+      toast('作り始めた');
+      break;
+    case 'devOut':
+      if (s.tr.proj && pay(s, m.devOut, false)) {
+        s.tr.proj.out = true;
+        s.eco.m.cost += m.devOut;
+        toast('絵と音を頼んだ');
+      }
+      break;
+    case 'dev': {
+      const pj = s.tr.proj;
+      if (!pj) break;
+      const job = bal.jobs[pj.job];
+      const know = s.eco.know.soft ?? 0;
+      labor(s, city, 240, 'soft', bal, ev);
+      pj.hours += (4 * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
+      if (pj.hours >= job.hours) {
+        const first = firstUnits(job, fameOf(s.tr, 'soft'), pj.out);
+        s.tr.titles.push({ job: pj.job, month: monthOf(s.eco, bal), first });
+        s.tr.proj = null;
+        toast(`${job.name}を発売した。今月の見込み ${first}本（入金は翌月末）`, 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      }
+      break;
+    }
+    case 'advice':
+      labor(s, city, 60, '', bal, ev);
+      toast(adviceOf(s, bal));
       break;
     case 'lockpick':
       if (pay(s, m.lockpick, false)) {
@@ -1372,7 +1583,7 @@ export function toSave(s: GameState) {
   return {
     v: SAVE_VERSION, seed: s.seed, rng: s.rng, clock: s.clock, x: s.x, y: s.y, cash: s.cash, dirty: s.dirty, bank: s.bank, loot: s.loot, heat: s.heat, record: s.record,
     crowbar: s.crowbar, laptop: s.laptop, biz: s.biz, cool: s.cool, earned: s.earned, crimes: s.crimes,
-    gun: s.gun, hide: s.hide, stash: s.stash, turf: s.turf, lockpick: s.lockpick, drill: s.drill, keys: s.keys, eco: s.eco,
+    gun: s.gun, hide: s.hide, stash: s.stash, turf: s.turf, lockpick: s.lockpick, drill: s.drill, keys: s.keys, eco: s.eco, tr: s.tr,
     mine: mine ? { bike: mine.bike, x: mine.x, y: mine.y, a: mine.a, riding: s.ride === mine.id } : null,
   };
 }
@@ -1381,6 +1592,7 @@ export function fromSave(d: SaveData, city: City, bal: Balance): GameState {
   const s = createGame(d.seed, city, bal);
   Object.assign(s, { rng: d.rng, clock: d.clock, x: d.x, y: d.y, cash: d.cash, dirty: d.dirty, bank: d.bank, loot: d.loot, heat: d.heat, record: d.record, crowbar: d.crowbar, laptop: d.laptop, biz: d.biz, cool: d.cool, earned: d.earned, crimes: d.crimes, gun: !!d.gun, hide: d.hide ?? null, stash: d.stash ?? 0, turf: d.turf ?? s.turf, lockpick: !!d.lockpick, drill: !!d.drill, keys: d.keys ?? [] });
   if (d.eco) s.eco = { ...newEco(bal), ...d.eco };
+  if (d.tr) s.tr = { ...newTr(), ...d.tr };
   s.bank = Math.max(0, s.bank); // 預金は借金にならない（借りるのは融資だけ）
   if (d.mine) {
     const c: Car = { id: s.nextId++, kind: 'mine', bike: d.mine.bike, x: d.mine.x, y: d.mine.y, a: d.mine.a, v: 0, color: d.mine.bike ? 0x1f8a6f : 0x2f7fc1, from: 0, to: 0, s: 0, chase: false, think: 0, path: [], stuck: 0, value: 0 };

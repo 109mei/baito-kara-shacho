@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
-import { loanOffers, monthlyPay, rankOf } from '../core/eco';
+import { loanOffers, monthlyPay, monthOf, rankOf } from '../core/eco';
+import { left, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
 import { MapView, PIN } from '../world/MapView';
@@ -122,8 +123,8 @@ function Minimap() {
   );
 }
 
-const LEGEND: (keyof typeof PIN)[] = ['home', 'conbini', 'bike', 'bank', 'police', 'lot', 'biz', 'pawn', 'jewel', 'gang', 'hideout'];
-const LEGEND_NAME: Record<string, string> = { home: '自宅', conbini: '仕事', bike: '店', bank: '銀行', police: '警察署', lot: '空き店舗', biz: '自分の店', pawn: '裏の取引', gang: '敵のアジト', hideout: 'アジトにできる倉庫', jewel: '宝石店' };
+const LEGEND: (keyof typeof PIN)[] = ['home', 'conbini', 'bike', 'bank', 'police', 'lot', 'biz', 'market', 'office', 'pawn', 'jewel', 'gang', 'hideout'];
+const LEGEND_NAME: Record<string, string> = { home: '自宅', conbini: '仕事', bike: '店', bank: '銀行', police: '警察署', lot: '空き店舗', biz: '自分の店', pawn: '裏の取引', gang: '敵のアジト', hideout: 'アジトにできる倉庫', jewel: '宝石店', market: '売り場', office: '窓口' };
 
 // 全体地図：さわった所へ道案内を出す
 function BigMap() {
@@ -288,6 +289,52 @@ function Routes({ id }: { id: number }) {
   );
 }
 
+// 仕事と商売：届いた話、今月の枠、作品、知名度、入金の予定、自分の疲れと知識
+function Hub() {
+  useGame((s) => s.hud);
+  const set = useGame((s) => s.set);
+  const gig = useGame((s) => s.gig);
+  const wayTo = useGame((s) => s.wayTo);
+  const s = getCore();
+  const tr = s.tr;
+  const J = b.jobs;
+  const month = monthOf(s.eco, b);
+  const gigs = [...tr.gigs].sort((x, y) => Number(y.taken) - Number(x.taken));
+  const dist = (poi: number) => Math.round(Math.hypot(city.pois[poi].x - s.x, city.pois[poi].y - s.y) / 10) * 10;
+  const know = Object.entries(s.eco.know).filter(([, v]) => v >= 1);
+  const fame = Object.entries(tr.fame).filter(([, v]) => v > 0);
+  return (
+    <div className="veil" data-hub onClick={(e) => { if (e.target === e.currentTarget) set({ hub: false }); }}>
+      <div className="sheet tall">
+        <div className="sheet-head">
+          <b>仕事と商売</b>
+          <small>1か月＝{b.time.daysPerMonth}日</small>
+          <button className="round" data-close onClick={() => set({ hub: false })}><Icon name="x" /></button>
+        </div>
+        <h3>届いた話（便利屋）</h3>
+        {gigs.length === 0 && <p className="hint">今月の話は、もうない。売り場でチラシを置くと増える</p>}
+        {gigs.map((g) => (
+          <div key={g.id} className={`gig ${g.taken ? 'on' : ''}`} data-gig={g.id}>
+            <span><b>{J[g.job].name}</b> +{yen(J[g.job].price - J[g.job].mat)}<small>{workMins(J[g.job], s.eco.know.handy ?? 0, tr, s.eco.fatigue)}分・ここから {dist(g.poi)}m・今月中</small></span>
+            {g.taken ? <><button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button><button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
+          </div>
+        ))}
+        <h3>手作りの品</h3>
+        <p className="line num">材料 <b>{tr.mats}</b>個　できた品 <b>{(tr.stock.craftSmall ?? 0) + (tr.stock.craftOrder ?? 0)}</b>個</p>
+        <p className="line num">今月の枠　小物 あと<b>{left(tr, 'craftSmall')}</b>（{tr.quota.craftSmall ?? 0}）　注文品 あと<b>{left(tr, 'craftOrder')}</b>（{tr.quota.craftOrder ?? 0}）</p>
+        <h3>個人開発</h3>
+        {tr.proj ? <p className="line num">{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {J[tr.proj.job].hours}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}</p> : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
+        {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month)}</b>本</p>)}
+        {fame.length > 0 && <><h3>知名度</h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
+        {tr.recv.length > 0 && <><h3>入金の予定</h3>{tr.recv.map((r, i) => <p key={i} className="line num">{r.what}　<b>{yen(r.amount)}</b>（月末）</p>)}</>}
+        <h3>自分</h3>
+        <p className="line num">疲れ <b>{Math.round(s.eco.fatigue)}</b> / 100<span className="bar"><i style={{ width: `${s.eco.fatigue}%` }} className={s.eco.fatigue > 80 ? 'hot' : s.eco.fatigue > 60 ? 'warm' : ''} /></span></p>
+        {know.length > 0 && <p className="line num">知識　{know.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{Math.floor(v)}</b>　</span>)}</p>}
+      </div>
+    </div>
+  );
+}
+
 // 融資の相談（銀行の窓口）：条件をすべて満たせば必ず通る。足りない条件は、印と文で見える
 function LoanSheet() {
   useGame((s) => s.hud);
@@ -420,6 +467,7 @@ function Game() {
   const mini = useGame((s) => s.mini);
   const routes = useGame((s) => s.routes);
   const loan = useGame((s) => s.loan);
+  const hub = useGame((s) => s.hub);
   const report = useGame((s) => s.report);
   const hurt = useGame((s) => s.hurt);
   const bigMap = useGame((s) => s.bigMap);
@@ -532,6 +580,7 @@ function Game() {
           </span>
           {(hud.gun || hud.hp < 100) && <span className={`hp ${hud.hp < 35 ? 'low' : ''}`} data-hp={hud.hp}><Icon name="heart" size={15} /><span><i style={{ width: `${Math.min(100, hud.hp)}%` }} /></span></span>}
         </div>
+        {!hud.inside && <button className="hubbtn" data-hubbtn onClick={() => set({ hub: true })}><Icon name="case" size={17} /><span>仕事と商売</span>{hud.gigs > 0 && <i>{hud.gigs}</i>}</button>}
         {hud.short > 0 && <span className="need" data-need>月末の払いに {yen(hud.short)} 足りない</span>}
         {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={17} /><span>{hud.goal}</span></button>}
         </div>
@@ -570,6 +619,7 @@ function Game() {
       {hurt > 0 && <div className="hurt" key={hurt} />}
       {panel !== null && <Panel id={panel} />}
       {loan !== null && <LoanSheet />}
+      {hub && <Hub />}
       {report && !busted && <Report />}
       {routes !== null && <Routes id={routes} />}
       {mini && <Mini />}

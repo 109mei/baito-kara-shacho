@@ -317,3 +317,36 @@ test('月末の締め：3日目の終わりに月次レポートが出る。銀�
   await shot(page, '19-loan');
 });
 
+test('手作りの品：材料を買い、自宅の作業台で作り、売り場に納める。「仕事と商売」で話を受ける', async ({ page }) => {
+  await fresh(page);
+  await page.locator('[data-start="new"]').click();
+  await page.locator('[data-hubbtn]').click();
+  await expect(page.locator('[data-hub]')).toBeVisible();
+  await page.locator('[data-gig] [data-take]').first().click();
+  await expect(page.locator('[data-gig] [data-way]')).toHaveCount(1);
+  await page.waitForTimeout(300);
+  await shot(page, '20-hub');
+  await page.locator('[data-hub] [data-close]').click();
+  await goTo(page, 'tool');
+  await enter(page);
+  await use(page, 0);
+  await page.locator('[data-act="mats"]').click();
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
+  await goTo(page, 'home');
+  await enter(page);
+  await use(page, 1);
+  await expect(page.locator('[data-act="craftSmall"]')).toBeEnabled();
+  await shot(page, '21-workbench');
+  await page.locator('[data-act="craftSmall"]').click();
+  await page.locator('[data-panel] [data-close]').click();
+  await out(page);
+  await goTo(page, 'market');
+  await enter(page);
+  await page.waitForTimeout(600);
+  await shot(page, '22-market');
+  await use(page, 0);
+  await page.locator('[data-act="sellGoods"]').click();
+  await expect.poll(async () => (await state(page)).cash).toBe(30000 - 2000 + 4 * 800);
+});
+

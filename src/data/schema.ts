@@ -9,6 +9,9 @@ const rec = (keys: string[]) => z.object(Object.fromEntries(keys.map((k) => [k, 
 // 強盗の的ごとの守り：通報までの秒・店員の通報・手配度・盗める額・金庫にかかる秒
 const prof = rec(['alarm', 'silent', 'heat', 'quiet', 'cam', 'min', 'max', 'days', 'drill', 'caseMin', 'caseMax']);
 
+// 仕事の表の1行。行を足せば、仕事が増える
+const job = z.object({ trade: z.string(), name: z.string(), kind: z.enum(['make', 'visit', 'title']), mat: n, price: pos, mins: n, fame: n, famePts: n, slots: n, perFame: n, perPitch: n, high: z.boolean(), cap: n, tool: z.string(), decay: n, hours: n });
+
 export const BalanceSchema = z.object({
   world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
   move: z.object({ walk: pos, bike: pos, car: pos, accel: pos, brake: pos, drag: pos, offroad: pos.max(1) }),
@@ -16,7 +19,9 @@ export const BalanceSchema = z.object({
   credit: rec(['start', 'run', 'black', 'paid', 'late', 'red3', 'goodYear', 'taxPaid', 'arrest', 'arrestCap', 'bankruptCap', 'capMonths', 'planGood', 'planBad', 'restartCash']),
   loan: rec(['rateD', 'rateC', 'rateB', 'rateA', 'startRatio', 'startKnow', 'months', 'bankMonths', 'bankPayShare', 'deferFee']),
   tax: rec(['person', 'corp', 'delayMonths']),
-  money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill', 'washRate', 'washCap']),
+  money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill', 'washRate', 'washCap', 'matPrice', 'power', 'washer', 'devOut']),
+  self: rec(['tirePerHour', 'sleep', 'nap', 'restPerHour', 'warn']),
+  jobs: z.record(z.string(), job),
   biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
   police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),

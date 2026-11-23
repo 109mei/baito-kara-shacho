@@ -30,6 +30,7 @@ export interface Hud {
   mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
   date: string; credit: number; grade: string; // 暦、信用の点とランク
   short: number; // 月末の払いに足りない額（足りていれば 0）
+  gigs: number; // 届いていて、まだ受けていない話の数
   aim: boolean; // 撃てる相手が、届く所にいる
   caught: number; // 捕まるまでの度合い（0〜1）
 }
@@ -49,6 +50,9 @@ interface Store {
   report: MonthRec | null; // 月次レポート（月末の締め）
   broke: boolean; // 倒産した
   loan: number | null; // 融資の相談をしている銀行
+  hub: boolean; // 「仕事と商売」の札
+  gig: (id: number, take: boolean) => void;
+  wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
   fire: () => void;
   bigMap: boolean;
@@ -62,7 +66,7 @@ interface Store {
   openPoi: () => void;
   act: (poi: number, act: string, mini: boolean) => void;
   miniDone: (hits: number) => void;
-  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'down' | 'routes' | 'report' | 'broke' | 'loan'>>) => void;
+  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'down' | 'routes' | 'report' | 'broke' | 'loan' | 'hub'>>) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   toast: (text: string, tone?: string) => void;
   guide: () => void;
@@ -120,6 +124,7 @@ function snapshot(): Hud {
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
     date: ((d) => `${d.year}年${d.month}月${d.day}日`)(dateOf(s.eco, b)), credit: Math.round(s.eco.credit), grade: rankOf(s.eco.credit),
     short: Math.max(0, monthBills(s.eco, monthLiving(s, b), b) - s.cash - Math.max(0, s.bank)),
+    gigs: s.tr.gigs.filter((g) => !g.taken).length,
     mates: net.online ? net.mates.size : -1,
     aim: s.gun && !s.inside && (s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < b.gang.gunRange) || (net.online && !!net.nearest(s.x, s.y, b.gang.gunRange))),
     caught: Math.min(1, s.catchT / b.police.catchTime),
@@ -188,7 +193,7 @@ export const useGame = create<Store>((set, get) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const st = get();
-    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null;
+    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null || st.hub;
     if (!paused) {
       acc += dt;
       let n = 0;
@@ -249,6 +254,13 @@ export const useGame = create<Store>((set, get) => {
     report: null,
     broke: false,
     loan: null,
+    hub: false,
+    gig: (id, take) => get().send({ type: 'gig', id, take }),
+    wayTo: (poi) => {
+      const p = city.pois[poi];
+      get().send({ type: 'way', x: p.x, y: p.y });
+      set({ hub: false });
+    },
     borrow: (kind, amount, plan) => {
       const id = get().loan;
       if (id === null) return;
@@ -265,7 +277,7 @@ export const useGame = create<Store>((set, get) => {
       core = saved && saved.seed === CITY_SEED ? fromSave(saved, city, b) : createGame(CITY_SEED, city, b);
       if (fresh) SaveStore.clear();
       input.fire = false;
-      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, routes: null, busted: null, down: null, bigMap: false, report: null, broke: false, loan: null });
+      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, routes: null, busted: null, down: null, bigMap: false, report: null, broke: false, loan: null, hub: false });
       cancelAnimationFrame(raf);
       last = performance.now();
       raf = requestAnimationFrame(loop);
@@ -301,8 +313,10 @@ export const useGame = create<Store>((set, get) => {
         return;
       }
       if (p.kind === 'house') {
-        const a = poiActions(core, city, p, b)[0];
-        if (!a.ok) get().toast(a.why ?? '', '');
+        const acts = poiActions(core, city, p, b);
+        const a = acts.find((x) => x.id === 'break')!;
+        if (acts.some((x) => x.id === 'gig')) set({ panel: id, panelActs: null }); // 仕事を受けた家：呼び鈴を押す
+        else if (!a.ok) get().toast(a.why ?? '', '');
         else set({ mini: { poi: id, act: 'break' } });
         return;
       }
