@@ -3,7 +3,7 @@
 // 広い街は 800m 四方の「ます」に分け、見えている所だけ作って描く。
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { nodeXY, type City, type District, type PoiKind } from '../core/city';
+import { nodeXY, seg, type Block, type City, type District, type PoiKind } from '../core/city';
 import { hourOf, riding, stars, type Car, type GameState } from '../core/sim';
 import type { Balance } from '../data/schema';
 
@@ -18,6 +18,22 @@ export const PIN: Record<PoiKind | 'biz', { c: number; t: string }> = {
   bank: { c: 0x1f8a6f, t: '銀' }, police: { c: 0x3b4a8f, t: '警' }, lot: { c: 0xd9822b, t: '空' }, biz: { c: 0xe0a100, t: '店' },
 };
 const CH = 800;
+const SIDEWALK = 0xe7e4dd;
+const SHADE = 0x1b2330;
+// 屋根の色：用途ごとに色の系統を分ける（住宅＝暖かい色と青ねず、商業＝明るい灰、都心＝青いガラス、工業＝青みの金属）
+const ROOF: Record<string, number[]> = {
+  residential: [0xc98b74, 0x9aa9bb, 0xa58f7d, 0xb3bbb1, 0xd3a57e, 0x93a1af, 0xbf7f6a],
+  commercial: [0xdcd8d1, 0xd0d5da, 0xe2dacf, 0xd6d0c6],
+  downtown: [0xb9c7d6, 0xa9b6c6, 0xc5cdd6, 0x9fb0c2],
+  industrial: [0xc9ced6, 0xbfc6cf, 0xd3cfc5],
+};
+const WALL: Record<string, [number, number]> = { residential: [0xcbbfa9, 0xb3a893], commercial: [0xb9b4ab, 0xa29d94], downtown: [0x8498ae, 0x6f8298], industrial: [0xaab1bb, 0x959ca7] };
+const AWNING = [0xd9574c, 0x3f9a6e, 0x3f7fc4, 0xe0a436, 0x8a5fc0];
+const hsh = (a: number, b: number, c: number) => {
+  let h = Math.imul(a + 1, 73856093) ^ Math.imul(b + 1, 19349663) ^ Math.imul(c + 1, 83492791);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const mix = (a: number, b: number, t: number) => {
   const f = (s: number) => Math.round(((a >> s) & 255) + (((b >> s) & 255) - ((a >> s) & 255)) * t);
@@ -48,6 +64,7 @@ export class MapView {
   private night = new Graphics();
   private zoom = 1.7;
   private labels: Sprite[] = [];
+  private poiRoof = new Map<number, Map<number, number>>(); // 場所の建物（区画の番号 → 建物の番号 → 印の色）
   private camX = 0;
   private camY = 0;
   private routeKey = '';
@@ -76,6 +93,28 @@ export class MapView {
     el.appendChild(cv);
     this.glowTex = this.makeGlow();
     for (const k of Object.keys(PIN) as (PoiKind | 'biz')[]) this.pinTex[k] = this.makePin(PIN[k].c, PIN[k].t);
+    // 場所にいちばん近い建物を、その場所の建物にする（屋根のふちとひさしを、印と同じ色にする）
+    const NXb = this.city.xs.length - 1;
+    for (const p of this.city.pois) {
+      if (p.kind === 'house' || p.kind === 'atm') continue;
+      const bi = seg(this.city.ys, p.y) * NXb + seg(this.city.xs, p.x);
+      const blk = this.city.blocks[bi];
+      if (!blk) continue;
+      let best = -1;
+      let bd = Infinity;
+      for (let k = 0; k < blk.b.length; k += 4) {
+        const dx = Math.max(blk.b[k] - p.x, 0, p.x - blk.b[k] - blk.b[k + 2]);
+        const dy = Math.max(blk.b[k + 1] - p.y, 0, p.y - blk.b[k + 1] - blk.b[k + 3]);
+        if (Math.hypot(dx, dy) < bd) {
+          bd = Math.hypot(dx, dy);
+          best = k;
+        }
+      }
+      if (best >= 0) {
+        if (!this.poiRoof.has(bi)) this.poiRoof.set(bi, new Map());
+        this.poiRoof.get(bi)!.set(best, PIN[p.kind].c);
+      }
+    }
     const base = new Graphics();
     const S = this.city.size;
     base.rect(0, 0, S, S).fill(LAND);
@@ -100,7 +139,7 @@ export class MapView {
       sp.alpha = 0.5;
       this.labels.push(sp);
     }
-    this.me.addChild(new Graphics().circle(0, 0, 2.5).fill({ color: 0xffffff, alpha: 0.95 }).circle(0, 0, 1.6).fill(0x1b2330).poly([2.2, 0, 0.6, -1.1, 0.6, 1.1]).fill(0xffc94a));
+    this.me.addChild(new Graphics().circle(0.5, 0.6, 2.6).fill({ color: SHADE, alpha: 0.25 }).circle(0, 0, 2.5).fill({ color: 0xffffff, alpha: 0.95 }).circle(0, 0, 1.6).fill(0x1b2330).poly([2.2, 0, 0.6, -1.1, 0.6, 1.1]).fill(0xffc94a));
     this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.me, this.pins);
     this.app.stage.addChild(this.world, this.night, this.glowWorld);
     this.glowWorld.addChild(this.glows);
@@ -180,21 +219,135 @@ export class MapView {
     return Texture.from(c);
   }
 
+  // 水辺：浅い所は明るく、岸には砂、水面には小さな波
   private drawWater(g: Graphics) {
     const S = this.city.size;
-    const sea: number[] = [-3000, -400];
-    for (let y = -400; y <= S + 400; y += 80) sea.push(this.city.coast(y), y);
-    sea.push(-3000, S + 400);
-    g.poly(sea).fill(WATER);
-    const left: number[] = [];
-    const right: number[] = [];
-    for (let y = -400; y <= S + 400; y += 60) {
-      left.push(this.city.river(y) - this.bal.world.riverHalf, y);
-      right.unshift(this.city.river(y) + this.bal.world.riverHalf, y);
+    const RH = this.bal.world.riverHalf;
+    const c = this.city;
+    const band = (fa: (y: number) => number, fb: (y: number) => number, color: number, step = 80) => {
+      const pts: number[] = [];
+      for (let y = -400; y <= S + 400; y += step) pts.push(fa(y), y);
+      for (let y = S + 400; y >= -400; y -= step) pts.push(fb(y), y);
+      g.poly(pts).fill(color);
+    };
+    band(() => -3000, (y) => c.coast(y), WATER);
+    band((y) => c.coast(y) - 80, (y) => c.coast(y), 0xbfe0ee);
+    band((y) => c.coast(y) - 26, (y) => c.coast(y), 0xd3ebf3);
+    band((y) => c.coast(y), (y) => c.coast(y) + 24, 0xf1e4c0);
+    band((y) => c.river(y) - RH - 7, (y) => c.river(y) + RH + 7, 0xcfe3b6, 60);
+    band((y) => c.river(y) - RH, (y) => c.river(y) + RH, WATER, 60);
+    band((y) => c.river(y) - RH, (y) => c.river(y) - RH + 16, 0xbfe0ee, 60);
+    band((y) => c.river(y) + RH - 16, (y) => c.river(y) + RH, 0xbfe0ee, 60);
+    for (let n = 0; n < 520; n++) {
+      const y = hsh(n, 3, 7) * S;
+      const sea = n % 3 !== 0;
+      const x = sea ? hsh(n, 9, 2) * Math.max(0, c.coast(y) - 110) : c.river(y) + (hsh(n, 5, 1) - 0.5) * (RH * 2 - 50);
+      g.rect(x, y, 7 + (n % 4) * 2, 0.9).fill({ color: 0xffffff, alpha: 0.5 }).rect(x + 4, y + 2.6, 5, 0.8).fill({ color: 0xffffff, alpha: 0.35 });
     }
-    const poly = [...left];
-    for (let k = 0; k < right.length; k += 2) poly.push(right[k], right[k + 1]);
-    g.poly(poly).fill(WATER);
+  }
+
+  private tree(g: Graphics, x: number, y: number, r: number) {
+    g.circle(x + r * 0.5, y + r * 0.55, r).fill({ color: SHADE, alpha: 0.16 });
+    g.circle(x, y, r).fill(0x7fba74).circle(x - r * 0.25, y - r * 0.28, r * 0.62).fill(0xa6d79a);
+  }
+
+  private park(g: Graphics, b: Block, X: number, Y: number, W: number, H: number) {
+    const r1 = hsh(b.i, b.j, 1);
+    g.roundRect(X, Y, W, H, 7).fill(0xcdebc0);
+    for (let k = 0; k < 4; k++) g.ellipse(X + W * (0.2 + 0.6 * hsh(b.i, b.j, 20 + k)), Y + H * (0.2 + 0.6 * hsh(b.j, b.i, 30 + k)), W * 0.2, H * 0.16).fill(0xc0e4b2);
+    // 散歩道
+    const px = X + W * (0.3 + 0.4 * hsh(b.i, b.j, 2));
+    const py = Y + H * (0.3 + 0.4 * hsh(b.i, b.j, 3));
+    g.rect(X + 3, py - 1.6, W - 6, 3.2).fill(0xece4cf).rect(px - 1.6, Y + 3, 3.2, H - 6).fill(0xece4cf);
+    g.circle(px, py, 6.5).fill(0xece4cf).circle(px, py, 3).fill(0x9fd2e8).circle(px, py, 1.2).fill(0xffffff);
+    if (r1 < 0.45 && W > 60 && H > 60) {
+      // 池
+      const ox = X + W * 0.72;
+      const oy = Y + H * 0.7;
+      g.ellipse(ox, oy, W * 0.17 + 2, H * 0.14 + 2).fill(0xe9dfbd).ellipse(ox, oy, W * 0.17, H * 0.14).fill(0x9fd2e8).ellipse(ox - W * 0.04, oy - H * 0.03, W * 0.08, H * 0.05).fill(0xbfe3f1);
+    } else if (r1 < 0.8 && W > 70 && H > 60) {
+      // 運動場
+      const fw = Math.min(64, W * 0.42);
+      const fh = Math.min(40, H * 0.34);
+      const ox = X + W * 0.56;
+      const oy = Y + H * 0.58;
+      for (let k = 0; k < 6; k++) g.rect(ox + (k * fw) / 6, oy, fw / 6, fh).fill(k % 2 ? 0x9fd08f : 0xb1dba2);
+      g.rect(ox, oy, fw, fh).stroke({ width: 0.8, color: 0xffffff, alpha: 0.9 }).rect(ox + fw / 2 - 0.4, oy, 0.8, fh).fill({ color: 0xffffff, alpha: 0.9 });
+      g.circle(ox + fw / 2, oy + fh / 2, fh * 0.2).stroke({ width: 0.8, color: 0xffffff, alpha: 0.9 });
+    }
+    for (let k = 0; k < 18; k++) {
+      const tx = X + 7 + hsh(b.i * 31 + k, b.j, 5) * (W - 14);
+      const ty = Y + 7 + hsh(b.j * 17 + k, b.i, 6) * (H - 14);
+      if (Math.abs(tx - px) < 5 || Math.abs(ty - py) < 5) continue;
+      this.tree(g, tx, ty, 3.4 + hsh(k, b.i, b.j) * 2.6);
+    }
+  }
+
+  // 建物：屋根（上の面）＋南の壁＋東の壁。光は北西から。影は南東の地面に落ちる
+  private building(g: Graphics, b: Block, k: number, mark: number | undefined) {
+    const x = b.b[k];
+    const y = b.b[k + 1];
+    const w = b.b[k + 2];
+    const h = b.b[k + 3];
+    const r1 = hsh(b.i * 7 + k, b.j, 11);
+    const r2 = hsh(b.j * 5 + k, b.i, 13);
+    const d = b.d;
+    const tall = d === 'downtown' ? 3.4 + r1 * 2.2 : d === 'commercial' ? 2.3 + r1 * 1.3 : d === 'industrial' ? 2.4 + r1 : 1.5 + r1 * 0.9;
+    const e = tall * 0.55;
+    const [ws, we] = WALL[d];
+    g.poly([x, y + h, x + w, y + h, x + w + e, y + h + tall, x + e, y + h + tall]).fill(ws);
+    g.poly([x + w, y, x + w + e, y + tall, x + w + e, y + h + tall, x + w, y + h]).fill(we);
+    const pal = ROOF[d];
+    const c = pal[Math.floor(r2 * pal.length)];
+    const lite = (col: number, t: number) => mix(col, 0xffffff, t);
+    const dark = (col: number, t: number) => mix(col, SHADE, t);
+    if (d === 'downtown') {
+      // 壁に窓の帯
+      for (let q = 1; q <= 2; q++) {
+        const f = q / 3;
+        g.poly([x + e * f, y + h + tall * f - 0.35, x + w + e * f, y + h + tall * f - 0.35, x + w + e * f, y + h + tall * f + 0.35, x + e * f, y + h + tall * f + 0.35]).fill({ color: 0xd6e6f5, alpha: 0.8 });
+      }
+    }
+    if (mark !== undefined) {
+      // 場所の建物：ひさしと入口
+      g.poly([x + 1, y + h, x + w - 1, y + h, x + w - 1 + e * 0.5, y + h + tall * 0.5, x + 1 + e * 0.5, y + h + tall * 0.5]).fill(mark);
+      for (let q = 0; q < 4; q++) g.rect(x + 2 + e * 0.25 + (q * (w - 4)) / 4, y + h + tall * 0.12, (w - 4) / 8, tall * 0.3).fill({ color: 0xffffff, alpha: 0.85 });
+      g.rect(x + w / 2 - 1.6 + e * 0.8, y + h + tall * 0.55, 3.2, tall * 0.45).fill(0x2b3547);
+    } else if (d === 'commercial' && r1 > 0.4) {
+      g.poly([x + 1, y + h, x + w - 1, y + h, x + w - 1 + e * 0.3, y + h + tall * 0.3, x + 1 + e * 0.3, y + h + tall * 0.3]).fill(AWNING[Math.floor(r2 * 7919) % AWNING.length]);
+    }
+    // 屋根
+    g.rect(x, y, w, h).fill(mark !== undefined ? mark : dark(c, 0.14));
+    const inset = mark !== undefined ? 1.5 : d === 'residential' ? 0 : 0.9;
+    if (d === 'residential' && mark === undefined) {
+      // 切妻屋根：光の当たる面を明るく、反対の面を暗く。まん中に棟の線
+      if (w >= h) {
+        g.rect(x, y, w, h / 2).fill(lite(c, 0.16)).rect(x, y + h / 2, w, h / 2).fill(dark(c, 0.1)).rect(x, y + h / 2 - 0.3, w, 0.6).fill(dark(c, 0.3));
+      } else {
+        g.rect(x, y, w / 2, h).fill(lite(c, 0.16)).rect(x + w / 2, y, w / 2, h).fill(dark(c, 0.1)).rect(x + w / 2 - 0.3, y, 0.6, h).fill(dark(c, 0.3));
+      }
+      if (r1 > 0.7) g.rect(x + w * 0.2, y + h * 0.2, 1.6, 1.6).fill(dark(c, 0.4)); // 煙突・天窓
+      return;
+    }
+    g.rect(x + inset, y + inset, w - inset * 2, h - inset * 2).fill(lite(c, mark !== undefined ? 0.12 : 0.06));
+    if (d === 'industrial') {
+      // のこぎり屋根の線と、丸いタンク
+      if (w >= h) for (let q = x + 5; q < x + w - 2; q += 6.5) g.rect(q, y + 1, 0.9, h - 2).fill(dark(c, 0.18));
+      else for (let q = y + 5; q < y + h - 2; q += 6.5) g.rect(x + 1, q, w - 2, 0.9).fill(dark(c, 0.18));
+      if (r1 > 0.62 && w > 16 && h > 16) g.circle(x + w * 0.3, y + h * 0.3, 4.2).fill(dark(c, 0.22)).circle(x + w * 0.3 - 0.8, y + h * 0.3 - 0.8, 2.8).fill(lite(c, 0.3));
+      return;
+    }
+    if (d === 'downtown' && w > 18 && h > 18) {
+      // 屋上：一段高い部分と設備
+      g.rect(x + w * 0.22 + 1, y + h * 0.22 + 1, w * 0.56, h * 0.56).fill({ color: SHADE, alpha: 0.14 });
+      g.rect(x + w * 0.22, y + h * 0.22, w * 0.56, h * 0.56).fill(lite(c, 0.22));
+      if (r1 > 0.55) g.circle(x + w * 0.5, y + h * 0.5, Math.min(w, h) * 0.16).stroke({ width: 0.8, color: 0xf4c84a }).circle(x + w * 0.5, y + h * 0.5, 1).fill(0xf4c84a);
+    }
+    if (w > 11 && h > 11) {
+      const ux = x + 2 + r2 * (w - 7);
+      const uy = y + 2 + r1 * (h - 7);
+      g.rect(ux + 0.6, uy + 0.6, 2.8, 2.4).fill({ color: SHADE, alpha: 0.2 }).rect(ux, uy, 2.8, 2.4).fill(dark(c, 0.3));
+    }
   }
 
   private buildChunk(cx: number, cy: number): Graphics {
@@ -203,33 +356,29 @@ export class MapView {
     const NX = c.xs.length;
     const NY = c.ys.length;
     const inChunk = (x: number, y: number) => Math.floor(x / CH) === cx && Math.floor(y / CH) === cy;
-    // 区画と建物
+    // 区画：歩道の帯 → 敷地 → 建物の影 → 建物
     for (const b of c.blocks) {
       if (b.d === 'water' || !inChunk((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) continue;
       const l = c.half(c.ax[b.i]) + 1.5;
       const r = c.half(c.ax[b.i + 1]) + 1.5;
       const t = c.half(c.ay[b.j]) + 1.5;
       const bt = c.half(c.ay[b.j + 1]) + 1.5;
-      g.roundRect(b.x0 + l, b.y0 + t, b.x1 - b.x0 - l - r, b.y1 - b.y0 - t - bt, 3).fill(BLOCK[b.d]);
+      const X = b.x0 + l;
+      const Y = b.y0 + t;
+      const W = b.x1 - b.x0 - l - r;
+      const H = b.y1 - b.y0 - t - bt;
       if (b.d === 'park') {
-        let h = (b.i * 73856093) ^ (b.j * 19349663);
-        for (let k = 0; k < 14; k++) {
-          h = (Math.imul(h, 1103515245) + 12345) >>> 0;
-          const tx = b.x0 + l + 8 + ((h >>> 8) % 1000) / 1000 * (b.x1 - b.x0 - l - r - 16);
-          h = (Math.imul(h, 1103515245) + 12345) >>> 0;
-          const ty = b.y0 + t + 8 + ((h >>> 8) % 1000) / 1000 * (b.y1 - b.y0 - t - bt - 16);
-          g.circle(tx, ty, 4 + (h % 4)).fill(0xa9d79c);
-        }
+        this.park(g, b, X, Y, W, H);
         continue;
       }
-      const deep = b.d === 'downtown' ? 0.07 : 0;
-      const wall = mix(BLOCK[b.d], 0x6b6257, 0.24 + deep);
-      const roof = mix(BLOCK[b.d], 0x6b6257, 0.12 + deep);
+      g.roundRect(X, Y, W, H, 3).fill(SIDEWALK);
+      g.rect(X + 3.2, Y + 3.2, W - 6.4, H - 6.4).fill(BLOCK[b.d]);
       for (let k = 0; k < b.b.length; k += 4) {
-        const tone = ((k * 7 + b.i * 3 + b.j * 5) % 5) * 0.022; // 建物ごとに、少しだけ濃さを変える
-        g.rect(b.b[k], b.b[k + 1], b.b[k + 2], b.b[k + 3]).fill(wall);
-        g.rect(b.b[k] + 0.9, b.b[k + 1] + 0.9, b.b[k + 2] - 1.8, b.b[k + 3] - 2.6).fill(mix(roof, tone > 0.07 ? 0x8fa3b8 : 0x6b6257, tone));
+        const tall = b.d === 'downtown' ? 5 : b.d === 'residential' ? 2 : 3;
+        g.rect(b.b[k] + tall * 0.55, b.b[k + 1] + tall * 0.9, b.b[k + 2] + tall * 0.75, b.b[k + 3] + tall * 0.95).fill({ color: SHADE, alpha: 0.15 });
       }
+      const marks = this.poiRoof.get(b.j * (NX - 1) + b.i);
+      for (let k = 0; k < b.b.length; k += 4) this.building(g, b, k, marks?.get(k));
     }
     // 道：先にふち、あとから面。細い道→大通りの順に重ねる
     const rects: [number, number, number, number, number][] = [];
@@ -245,24 +394,51 @@ export class MapView {
         rects.push([c.xs[i] - hw, c.ys[j] - hw, hw * 2, c.ys[j + 1] - c.ys[j] + hw * 2, u]);
       }
     }
+    for (const [x, y, w, h, t] of rects) if (t === 3) g.rect(x + 5, y + h + 1.6, w - 6, 7).fill({ color: SHADE, alpha: 0.14 }); // 橋の影
     for (const major of [false, true]) {
-      for (const [x, y, w, h, t] of rects) if (t >= 2 === major) g.rect(x - 1.6, y - 1.6, w + 3.2, h + 3.2).fill(t === 3 ? 0xa9783a : major ? ROAD.majorEdge : ROAD.minorEdge);
+      for (const [x, y, w, h, t] of rects) if (t >= 2 === major) g.rect(x - 1.6, y - 1.6, w + 3.2, h + 3.2).fill(t === 3 ? 0x8f6a35 : major ? ROAD.majorEdge : ROAD.minorEdge);
       for (const [x, y, w, h, t] of rects) if (t >= 2 === major) g.rect(x, y, w, h).fill(major ? ROAD.major : ROAD.minor);
     }
-    for (const [x, y, w, h, t] of rects) if (t >= 2) {
-      if (w > h) for (let q = x + 22; q < x + w - 26; q += 14) g.rect(q, y + h / 2 - 0.5, 8, 1).fill({ color: 0xffffff, alpha: 0.85 });
-      else for (let q = y + 22; q < y + h - 26; q += 14) g.rect(x + w / 2 - 0.5, q, 1, 8).fill({ color: 0xffffff, alpha: 0.85 });
-    }
+    const white = { color: 0xffffff, alpha: 0.9 };
     for (const [x, y, w, h, t] of rects) {
-      if (t === 2) {
-        // 街路樹：大通りの両わきに、間をあけて
-        if (w > h) for (let q = x + 30; q < x + w - 30; q += 34) g.circle(q, y - 4, 2.6).fill(0x9fd08f).circle(q + 17, y + h + 4, 2.6).fill(0x9fd08f);
-        else for (let q = y + 30; q < y + h - 30; q += 34) g.circle(x - 4, q, 2.6).fill(0x9fd08f).circle(x + w + 4, q + 17, 2.6).fill(0x9fd08f);
-      } else if (t === 1) {
-        // 横断歩道：細い道の両はし
+      const horiz = w > h;
+      if (t >= 2) {
+        // 大通り：中央の二重線、車線の破線、はしの横断歩道
+        const hw = (horiz ? h : w) / 2;
+        if (horiz) {
+          g.rect(x + hw + 22, y + hw - 1.1, w - hw * 2 - 44, 0.7).fill(white).rect(x + hw + 22, y + hw + 0.4, w - hw * 2 - 44, 0.7).fill(white);
+          for (let q = x + hw + 24; q < x + w - hw - 30; q += 15) g.rect(q, y + hw / 2 - 0.3, 7, 0.6).fill({ color: 0xffffff, alpha: 0.7 }).rect(q, y + hw * 1.5 - 0.3, 7, 0.6).fill({ color: 0xffffff, alpha: 0.7 });
+          if (t === 2) for (let k = 0; k < 7; k++) g.rect(x + hw + 12, y + 2 + (k * (h - 4)) / 7, 6, (h - 4) / 7 - 1.7).fill(white).rect(x + w - hw - 18, y + 2 + (k * (h - 4)) / 7, 6, (h - 4) / 7 - 1.7).fill(white);
+        } else {
+          g.rect(x + hw - 1.1, y + hw + 22, 0.7, h - hw * 2 - 44).fill(white).rect(x + hw + 0.4, y + hw + 22, 0.7, h - hw * 2 - 44).fill(white);
+          for (let q = y + hw + 24; q < y + h - hw - 30; q += 15) g.rect(x + hw / 2 - 0.3, q, 0.6, 7).fill({ color: 0xffffff, alpha: 0.7 }).rect(x + hw * 1.5 - 0.3, q, 0.6, 7).fill({ color: 0xffffff, alpha: 0.7 });
+          if (t === 2) for (let k = 0; k < 7; k++) g.rect(x + 2 + (k * (w - 4)) / 7, y + hw + 12, (w - 4) / 7 - 1.7, 6).fill(white).rect(x + 2 + (k * (w - 4)) / 7, y + h - hw - 18, (w - 4) / 7 - 1.7, 6).fill(white);
+        }
+        if (t === 3) {
+          // 橋：らんかん
+          if (horiz) g.rect(x, y + 0.6, w, 1.3).fill(0x8f6a35).rect(x, y + h - 1.9, w, 1.3).fill(0x8f6a35);
+        } else if (horiz) {
+          for (let q = x + 34; q < x + w - 34; q += 34) {
+            this.tree(g, q, y - 4.4, 2.7);
+            this.tree(g, q + 17, y + h + 4.4, 2.7);
+          }
+        } else {
+          for (let q = y + 34; q < y + h - 34; q += 34) {
+            this.tree(g, x - 4.4, q, 2.7);
+            this.tree(g, x + w + 4.4, q + 17, 2.7);
+          }
+        }
+      } else {
+        // 細い道：両はしの横断歩道と、止まれの線
         const n = 4;
-        if (w > h) for (let k = 0; k < n; k++) g.rect(x + 20, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill({ color: 0xd9d4c8, alpha: 0.9 }).rect(x + w - 25, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill({ color: 0xd9d4c8, alpha: 0.9 });
-        else for (let k = 0; k < n; k++) g.rect(x + 2 + (k * (w - 4)) / n, y + 20, (w - 4) / n - 1.6, 5).fill({ color: 0xd9d4c8, alpha: 0.9 }).rect(x + 2 + (k * (w - 4)) / n, y + h - 25, (w - 4) / n - 1.6, 5).fill({ color: 0xd9d4c8, alpha: 0.9 });
+        const bar = { color: 0xd3cec2, alpha: 0.95 };
+        if (horiz) {
+          for (let k = 0; k < n; k++) g.rect(x + 20, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill(bar).rect(x + w - 25, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill(bar);
+          g.rect(x + 28, y + h / 2, 0.8, h / 2 - 1.5).fill(bar).rect(x + w - 29, y + 1.5, 0.8, h / 2 - 1.5).fill(bar);
+        } else {
+          for (let k = 0; k < n; k++) g.rect(x + 2 + (k * (w - 4)) / n, y + 20, (w - 4) / n - 1.6, 5).fill(bar).rect(x + 2 + (k * (w - 4)) / n, y + h - 25, (w - 4) / n - 1.6, 5).fill(bar);
+          g.rect(x + 1.5, y + 28, w / 2 - 1.5, 0.8).fill(bar).rect(x + w / 2, y + h - 29, w / 2 - 1.5, 0.8).fill(bar);
+        }
       }
     }
     return g;
@@ -278,10 +454,11 @@ export class MapView {
     if (c.bike) {
       g.roundRect(-1.6, -0.35, 3.2, 0.7, 0.3).fill(c.color).circle(-1.5, 0, 0.6).fill(0x1b2330).circle(1.5, 0, 0.6).fill(0x1b2330).circle(0, 0, 0.9).fill(0x1b2330);
     } else {
-      g.roundRect(-2.4, -1.25, 4.8, 2.5, 0.7).fill({ color: 0x1b2330, alpha: 0.22 });
+      g.roundRect(-2.0, -0.8, 4.8, 2.5, 0.7).fill({ color: 0x1b2330, alpha: 0.22 });
       g.roundRect(-2.3, -1.1, 4.6, 2.2, 0.6).fill(c.color);
       g.roundRect(-1.1, -0.92, 2.2, 1.84, 0.4).fill(mix(c.color, 0x1b2330, c.kind === 'police' ? 0.75 : 0.28));
-      g.rect(0.9, -0.85, 0.5, 1.7).fill({ color: 0xcfe6f5, alpha: 0.9 });
+      g.rect(0.9, -0.85, 0.5, 1.7).fill({ color: 0xcfe6f5, alpha: 0.9 }).rect(-1.4, -0.85, 0.35, 1.7).fill({ color: 0xcfe6f5, alpha: 0.6 });
+      g.rect(2.05, -0.95, 0.25, 0.5).fill(0xfff3c4).rect(2.05, 0.45, 0.25, 0.5).fill(0xfff3c4).rect(-2.3, -0.95, 0.2, 0.5).fill(0xd9463c).rect(-2.3, 0.45, 0.2, 0.5).fill(0xd9463c);
       if (c.kind === 'police') {
         g.rect(1.5, -1.1, 0.8, 2.2).fill(0x1b2330).rect(-2.3, -1.1, 0.9, 2.2).fill(0x1b2330);
         light = new Graphics().rect(-0.25, -0.8, 0.5, 0.75).fill(0xff3b30).rect(-0.25, 0.05, 0.5, 0.75).fill(0x2f6bff);
@@ -338,10 +515,10 @@ export class MapView {
     // 見えている「ます」を用意する（1コマに作るのは2つまで）
     let built = 0;
     const need = new Set<string>();
-    for (let cy = Math.floor((y0 - 60) / CH); cy <= Math.floor((y1 + 60) / CH); cy++) for (let cx = Math.floor((x0 - 60) / CH); cx <= Math.floor((x1 + 60) / CH); cx++) {
+    for (let cy = Math.floor((y0 - 200) / CH); cy <= Math.floor((y1 + 200) / CH); cy++) for (let cx = Math.floor((x0 - 200) / CH); cx <= Math.floor((x1 + 200) / CH); cx++) {
       const key = `${cx},${cy}`;
       need.add(key);
-      if (!this.chunks.has(key) && built < 2) {
+      if (!this.chunks.has(key) && built < 1) {
         const g = this.buildChunk(cx, cy);
         this.chunkLayer.addChild(g);
         this.chunks.set(key, g);
