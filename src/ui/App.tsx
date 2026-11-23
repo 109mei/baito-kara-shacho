@@ -1,11 +1,12 @@
 // 画面。街の絵は PixiJS が描き、React は上に重ねる表示と札だけを受け持つ。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
+import { hasKey, POI_NAME, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
 import { apartFill, apartIncome, seen as seenStat, type Staff } from '../core/shop';
-import { left, TRADE_NAME, unitsAt, workMins } from '../core/trade';
+import { left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
+import { rankIndex } from '../core/eco';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
 import { MapView, PIN } from '../world/MapView';
@@ -325,6 +326,7 @@ function Hub() {
   const gig = useGame((s) => s.gig);
   const wayTo = useGame((s) => s.wayTo);
   const staff = useGame((s) => s.staff);
+  const bid = useGame((s) => s.bid);
   const s = getCore();
   const tr = s.tr;
   const J = b.jobs;
@@ -349,6 +351,29 @@ function Hub() {
             {g.taken ? <><button className="chip on" data-way onClick={() => wayTo(g.poi)}>道案内</button><button className="chip" data-drop onClick={() => gig(g.id, false)}>やめる</button></> : <button className="chip on" data-take onClick={() => gig(g.id, true)}>受ける</button>}
           </div>
         ))}
+        {(tr.bids.length > 0 || tr.deals.length > 0) && <h3>契約（会社との定期の仕事）</h3>}
+        {tr.deals.map((d, i) => (
+          <div key={i} className="gig on" data-deal>
+            <span><b>{POI_NAME[city.pois[d.poi].kind]}</b>　月 {yen(d.value)}<small>今月 {d.done}/{d.visits}回・あと{d.left}か月・代金は翌月末</small></span>
+            <button className="chip on" onClick={() => wayTo(d.poi)}>道案内</button>
+          </div>
+        ))}
+        {tr.bids.map((q) => {
+          const parts = scoreParts(tr, q, rankIndex(s.eco.credit), b);
+          const mine = scoreOf(tr, q, rankIndex(s.eco.credit), b);
+          return (
+            <div key={q.id} className="gig col" data-bid={q.id}>
+              <span><b>{POI_NAME[city.pois[q.poi].kind]}</b>　月 {yen((q.value * q.quote))} × {q.months}か月・月{q.visits}回
+                <small>こちら <b>{mine}</b>点　競合 <b>{q.rival}</b>点（月末に、点の高いほうが取る）</small>
+                <small>{SCORE_NAMES.map((n, i) => `${n} ${parts[i]}`).join('・')}</small>
+                <small>{q.calls >= 3 ? `この相手は「${SCORE_NAMES[q.heavy]}」を重く、「${SCORE_NAMES[q.light]}」を軽く見る` : `あと${3 - q.calls}回 通うと、相手が何を重く見るかが分かる`}</small></span>
+              <div className="btns">
+                {(['low', 'mid', 'high'] as const).map((k, i) => <button key={k} className={`chip ${q.quote === [0.9, 1, 1.1][i] ? 'on' : ''}`} data-quote={k} onClick={() => bid(q.id, k)}>{['安く出す', '相場で出す', '高く出す'][i]}</button>)}
+                <button className="chip" data-call onClick={() => bid(q.id, 'call')}>通う（1時間）</button>
+              </div>
+            </div>
+          );
+        })}
         {s.biz.length > 0 && <h3>店</h3>}
         {s.biz.map((z) => {
           const crew = s.firm.staff.filter((q) => q.at === z.poi);

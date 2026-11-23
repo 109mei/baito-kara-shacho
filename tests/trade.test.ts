@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { apply, adviceOf, clientsOf, createGame, fromSave, poiActions, toSave } from '../src/core/sim';
-import { baseQuota, firstUnits, left, newTr, quality, workMins } from '../src/core/trade';
+import { baseQuota, firstUnits, left, newTr, offerBids, quality, scoreOf, scoreParts, settleDeals, workMins, type Bid } from '../src/core/trade';
 import { balance as b } from '../src/data/schema';
 
 const city = makeCity(20261123, b);
@@ -159,3 +159,57 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
     expect(adviceOf(s, b)).toContain('支払い');
   });
 });
+
+describe('契約型：点の高い会社が受注する（運は入らない）', () => {
+  const bid = (over: Partial<Bid> = {}): Bid => ({ id: 1, poi: 5, value: 60000, visits: 3, months: 3, quote: 1, calls: 0, heavy: -1, light: -1, rival: 50, ...over });
+  it('点の内訳：価格30・実績20・信用20・関係20・納期10。相手ごとに、どれかが10多く、どれかが10少ない', () => {
+    const tr = newTr();
+    expect(scoreParts(tr, bid(), 0, b)).toEqual([30, 0, 0, 0, 10]);
+    tr.jobs = 5;
+    tr.rel[5] = 50;
+    expect(scoreParts(tr, bid(), 2, b)).toEqual([30, 20, 10, 10, 10]);
+    expect(scoreParts(tr, bid({ quote: 1.1 }), 2, b)[0]).toBeCloseTo(27.3);
+    expect(scoreParts(tr, bid({ heavy: 3, light: 0 }), 2, b)).toEqual([20, 20, 10, 15, 10]);
+    tr.deals = [{ poi: 1, value: 1, visits: 1, left: 1, done: 0 }, { poi: 2, value: 1, visits: 1, left: 1, done: 0 }];
+    expect(scoreParts(tr, bid(), 2, b)[4]).toBe(0); // 手がいっぱいだと納期が取れない
+  });
+  it('話は実績3件から届く。月末に、点が競合より高ければ取れる。回数を守れないと違約金', () => {
+    const tr = newTr();
+    offerBids(tr, [5, 6], () => 0.5, b);
+    expect(tr.bids.length).toBe(0);
+    tr.jobs = 5;
+    offerBids(tr, [5, 6], () => 0.5, b);
+    expect(tr.bids.length).toBe(2);
+    tr.bids = [bid({ rival: 80 })];
+    expect(settleDeals(tr, 0, 1, b)[0]).toContain('競合に取られた');
+    tr.bids = [bid({ rival: 50 })];
+    expect(scoreOf(tr, tr.bids[0], 1, b)).toBe(65); // 価格30＋実績20＋信用5＋関係0＋納期10
+    expect(settleDeals(tr, 0, 1, b)[0]).toContain('契約が取れた');
+    expect(tr.deals.length).toBe(1);
+    tr.bids = [];
+    tr.deals[0].done = 3;
+    settleDeals(tr, 1, 1, b);
+    expect(tr.recv[0]).toEqual({ amount: 60000, due: 2, what: '契約の代金' });
+    tr.deals[0].done = 2;
+    tr.rel[5] = 40;
+    expect(settleDeals(tr, 2, 1, b)[0]).toContain('違約金');
+    expect(tr.recv[1].amount).toBe(54000);
+    expect(tr.rel[5]).toBe(20);
+  });
+  it('街の中で：通うと関係が上がり、契約の相手の場所で仕事ができる', () => {
+    const s = createGame(7, city, b);
+    s.tr.bids = [bid({ poi: city.pois.find((p) => p.kind === 'warehouse')!.id })];
+    apply(s, city, { type: 'bid', id: 1, act: 'call' }, b);
+    apply(s, city, { type: 'bid', id: 1, act: 'low' }, b);
+    expect(s.tr.rel[s.tr.bids[0].poi]).toBe(b.deal.relPerVisit);
+    expect(s.tr.bids[0].quote).toBe(0.9);
+    const p = city.pois[s.tr.bids[0].poi];
+    s.tr.deals = [{ poi: p.id, value: 60000, visits: 3, left: 3, done: 0 }];
+    s.x = p.x;
+    s.y = p.y;
+    expect(poiActions(s, city, p, b)[0].id).toBe('deal');
+    apply(s, city, { type: 'poi', id: p.id, act: 'deal' }, b);
+    expect(s.tr.deals[0].done).toBe(1);
+  });
+});
+

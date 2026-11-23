@@ -53,6 +53,7 @@ interface Store {
   hub: boolean; // 「仕事と商売」の札
   gig: (id: number, take: boolean) => void;
   staff: (id: number, act: Extract<Cmd, { type: 'staff' }>['act'], k?: 0 | 1 | 2) => void;
+  bid: (id: number, act: Extract<Cmd, { type: 'bid' }>['act']) => void;
   wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
   exportSave: () => string; // セーブを文字にして書き出す
@@ -262,6 +263,7 @@ export const useGame = create<Store>((set, get) => {
     hub: false,
     gig: (id, take) => get().send({ type: 'gig', id, take }),
     staff: (id, act, k) => get().send({ type: 'staff', id, act, k }),
+    bid: (id, act) => get().send({ type: 'bid', id, act }),
     wayTo: (poi) => {
       const p = city.pois[poi];
       get().send({ type: 'way', x: p.x, y: p.y });
@@ -322,6 +324,11 @@ export const useGame = create<Store>((set, get) => {
       if (id === null) return;
       sfx.tap();
       const p = city.pois[id];
+      // 契約の仕事がある相手の場所：入口で仕事を始める
+      if (p.kind !== 'house' && poiActions(core, city, p, b).some((x) => x.id === 'deal')) {
+        set({ panel: id, panelActs: ['deal'] });
+        return;
+      }
       if (core.ride !== null && p.kind === 'jewel') {
         get().toast('乗り物を降りてから入る', '');
         return;

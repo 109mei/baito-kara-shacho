@@ -411,5 +411,17 @@
     "caseHours": 2,
     "caseAlarm": 1.6,
     "caseDays": 2
+  },
+  "deal": {
+    "minJobs": 3,
+    "value": 60000,
+    "visits": 3,
+    "months": 3,
+    "visitMins": 120,
+    "relPerVisit": 5,
+    "penalty": 0.1,
+    "relLoss": 20,
+    "maxDeals": 2,
+    "rate": 0.6
   }
 }

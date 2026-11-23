@@ -4,7 +4,7 @@ import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
 import { apartFill, apartIncome, apartPrice, arriveRate, askOne, dayShop, hire, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
-import { endMonth, fameOf, firstUnits, left, newTr, pitch, quality, record, startMonth, workMins, type Tr } from './trade';
+import { endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -75,6 +75,7 @@ export type Cmd =
   | { type: 'loot'; i: number }
   | { type: 'fire' }
   | { type: 'gig'; id: number; take: boolean } // 届いた話を受ける・断る
+  | { type: 'bid'; id: number; act: 'low' | 'mid' | 'high' | 'call' } // 契約の話：見積を変える・通う
   | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'talk' | 'assign' | 'boss' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
   | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
@@ -192,7 +193,14 @@ export function poiTitle(s: GameState, city: City, p: Poi): string {
   const mine = s.biz.find((z) => z.poi === p.id);
   return mine ? (mine.type === 'stall' ? '自分の屋台' : '自分の店') : POI_NAME[p.kind];
 }
+// 場所でできること。契約の相手の場所では、いちばん上に「契約の仕事」が出る
 export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
+  const acts = baseActions(s, city, p, bal);
+  const dl = s.tr.deals.find((x) => x.poi === p.id && x.done < x.visits);
+  if (dl) acts.unshift({ id: 'deal', label: '契約の仕事をする', sub: `${bal.deal.visitMins}分・今月 ${dl.done}/${dl.visits}回`, ok: true });
+  return acts;
+}
+function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
   const m = bal.money;
   const st = stars(s, bal);
   const h = hourOf(s);
@@ -524,7 +532,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   s.eco.days += 1;
   if (s.eco.days % bal.time.daysPerMonth === 0) {
     const ended = monthOf(s.eco, bal) - 1;
-    const active = s.biz.length > 0 || s.firm.aparts.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
+    const active = s.biz.length > 0 || s.firm.aparts.length > 0 || s.tr.deals.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
     // 物件の家賃収入（資産型）。年末に、建物が少し傷む
     let estate = 0;
     for (const a of s.firm.aparts) estate += apartIncome(a, city.pois[a.poi].traffic, bal);
@@ -545,7 +553,9 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
         s.eco.m.cost += loss;
       }
     }
+    const dealNotes = settleDeals(s.tr, ended, rankIndex(s.eco.credit), bal);
     const me = endMonth(s.tr, ended, bal);
+    me.notes.push(...dealNotes);
     s.bank += me.income;
     s.earned += me.income;
     s.eco.m.sales += me.income;
@@ -573,6 +583,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
     const ms = monthStaff(s.firm, s.biz, mr, bal);
     out.rec.notes.push(...ms.notes);
     recruit(s.firm, mr, bal, phaseOf(s.eco).hire);
+    offerBids(s.tr, firmsOf(city), mr, bal);
     if (s.firm.pool.length) out.rec.notes.push(`求人に ${s.firm.pool.length}人 の応募が来た`);
     for (const z of s.biz) {
       z.aware = Math.max(0, z.aware - bal.shop.awareDecay);
@@ -608,6 +619,16 @@ const monthRng = (seed: number, k: number) => {
   let x = (Math.imul(seed, 2654435761) + Math.imul(k + 1, 40503) + 12345) >>> 0;
   return () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296;
 };
+// 契約の相手（会社）：倉庫・自転車屋・中古車屋・売り場・宝石店
+const FIRMS = new WeakMap<City, number[]>();
+export function firmsOf(city: City): number[] {
+  let c = FIRMS.get(city);
+  if (!c) {
+    c = city.pois.filter((p) => ['warehouse', 'bike', 'car', 'market', 'jewel'].includes(p.kind)).map((p) => p.id);
+    FIRMS.set(city, c);
+  }
+  return c;
+}
 // 客先（便利屋の話が届く家）：自宅から近い順に 24 軒
 const CLIENTS = new WeakMap<City, number[]>();
 export function clientsOf(city: City): number[] {
@@ -729,6 +750,18 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
   if (cmd.type === 'gig') {
     const g = s.tr.gigs.find((x) => x.id === cmd.id);
     if (g) g.taken = cmd.take;
+    return ev;
+  }
+  if (cmd.type === 'bid') {
+    const b2 = s.tr.bids.find((x) => x.id === cmd.id);
+    if (!b2) return ev;
+    if (cmd.act === 'call') {
+      // 通う：1時間。関係が上がる。3回通うと、相手が何を重く見るかが分かる
+      labor(s, city, 60, 'handy', bal, ev);
+      b2.calls += 1;
+      s.tr.rel[b2.poi] = Math.min(100, (s.tr.rel[b2.poi] ?? 0) + bal.deal.relPerVisit);
+      toast(b2.calls === 3 ? '相手の考えが分かってきた' : '顔を出してきた');
+    } else b2.quote = cmd.act === 'low' ? 0.9 : cmd.act === 'high' ? 1.1 : 1;
     return ev;
   }
   if (cmd.type === 'staff') {
@@ -1120,6 +1153,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       labor(s, city, workMins(job, know, s.tr, s.eco.fatigue), 'handy', bal, ev);
       s.tr.gigs = s.tr.gigs.filter((x) => x !== g);
       record(s.tr, g.job, 1, quality(know, s.tr.washer, false));
+      s.tr.jobs += 1;
       s.cash += job.price - job.mat;
       s.earned += job.price - job.mat;
       s.eco.m.sales += job.price;
@@ -1159,6 +1193,15 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
         toast(`${job.name}を発売した。今月の見込み ${first}本（入金は翌月末）`, 'good');
         ev.push({ type: 'sfx', name: 'ok' });
       }
+      break;
+    }
+    case 'deal': {
+      const dl = s.tr.deals.find((x) => x.poi === p.id && x.done < x.visits);
+      if (!dl) break;
+      labor(s, city, bal.deal.visitMins, 'handy', bal, ev);
+      dl.done += 1;
+      s.tr.jobs += 1;
+      toast(`契約の仕事をした（今月 ${dl.done}/${dl.visits}回）`, 'good');
       break;
     }
     case 'advice':
