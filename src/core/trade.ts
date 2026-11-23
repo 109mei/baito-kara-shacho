@@ -27,13 +27,14 @@ export const newTr = (): Tr => ({ fame: {}, quota: {}, used: {}, mats: 0, stock:
 
 export const fameOf = (tr: Tr, trade: string) => tr.fame[trade] ?? 0;
 // 今月の枠（ゆらぐ前）。仕様書 6章の表
-export function baseQuota(tr: Tr, job: Job): number {
+// 月が短い（1か月＝3日）ので、月の枠は仕様書の式に scale（数値の表の quotaScale）を掛ける
+export function baseQuota(tr: Tr, job: Job, scale = 1): number {
   const f = fameOf(tr, job.trade);
   const p = tr.pitch[job.trade] ?? 0;
   if (job.tool === 'washer' && !tr.washer) return 0;
   if (f < job.fame) return 0;
-  if (job.high) return Math.min(job.cap, job.slots + (f - job.fame) * job.perFame); // 高い仕事：知名度が届いてから
-  return job.slots + f * job.perFame + p * job.perPitch;
+  if (job.high) return Math.min(job.cap, job.slots + (f - job.fame) * job.perFame) * scale; // 高い仕事：知名度が届いてから
+  return (job.slots + f * job.perFame + p * job.perPitch) * scale;
 }
 export const left = (tr: Tr, id: string) => Math.max(0, Math.floor((tr.quota[id] ?? 0) - (tr.used[id] ?? 0)));
 
@@ -45,7 +46,8 @@ export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => 
   tr.gigs = tr.gigs.filter((g) => g.taken && g.due >= month);
   for (const [id, job] of Object.entries(bal.jobs)) {
     if (job.kind === 'title') continue;
-    tr.quota[id] = Math.round(baseQuota(tr, job) * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1)) + (k[id] ?? 0); // k＝景気と出来事の倍率
+    const base = baseQuota(tr, job, bal.time.quotaScale);
+    tr.quota[id] = (base > 0 ? Math.max(1, Math.round(base * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1))) : 0) + (k[id] ?? 0); // k＝景気と出来事の倍率
     if (job.kind !== 'visit' || !clients.length) continue;
     // 客先へ行く仕事は、1件ずつ話として届く
     const have = tr.gigs.filter((g) => g.job === id).length;
@@ -58,8 +60,9 @@ export function pitch(tr: Tr, trade: string, month: number, clients: number[], r
   tr.pitch[trade] = (tr.pitch[trade] ?? 0) + 1;
   for (const [id, job] of Object.entries(bal.jobs)) {
     if (job.trade !== trade || job.high || job.kind === 'title' || fameOf(tr, trade) < job.fame) continue;
-    tr.quota[id] = (tr.quota[id] ?? 0) + job.perPitch;
-    if (job.kind === 'visit' && clients.length) for (let k = 0; k < job.perPitch; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
+    const add = Math.max(1, Math.round(job.perPitch * bal.time.quotaScale));
+    tr.quota[id] = (tr.quota[id] ?? 0) + add;
+    if (job.kind === 'visit' && clients.length) for (let k = 0; k < add; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
   }
 }
 // 作業にかかる分：慣れ（知識が30に満たない業種は遅い）、道具、疲れで変わる

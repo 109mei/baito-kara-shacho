@@ -219,8 +219,8 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
       return [
         { id: 'sellGoods', label: '作った品を納める', sub: have ? `${n}個 売れる（今月の枠の残り ${left(tr, 'craftSmall')}）` : '品を持っていない', ok: n > 0, why: have ? '今月の枠がいっぱい' : '品を持っていない' },
         { id: 'wholesale', label: '余った品を卸に売る', sub: have > n ? `${have - n}個・半値・代金は翌月末` : '余っていない', ok: have > n && rankIndex(s.eco.credit) >= 1, why: have > n ? '卸との取引は、信用のランク D から' : '余っていない' },
-        { id: 'pitchCraft', label: '品を売り込む', sub: '2時間・今月の枠 +10', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
-        { id: 'pitchHandy', label: '便利屋のチラシを置く', sub: '2時間・届く話 +3', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
+        { id: 'pitchCraft', label: '品を売り込む', sub: '2時間・今月の枠が増える', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
+        { id: 'pitchHandy', label: '便利屋のチラシを置く', sub: '2時間・話が届く', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
       ];
     }
     case 'office': {

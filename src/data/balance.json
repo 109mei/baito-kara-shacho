@@ -18,7 +18,8 @@
     "minutesPerSecond": 2,
     "startHour": 8,
     "daysPerMonth": 3,
-    "monthsPerYear": 12
+    "monthsPerYear": 12,
+    "quotaScale": 0.3
   },
   "money": {
     "startCash": 30000,
@@ -414,7 +415,7 @@
   },
   "deal": {
     "minJobs": 3,
-    "value": 60000,
+    "value": 24000,
     "visits": 3,
     "months": 3,
     "visitMins": 120,

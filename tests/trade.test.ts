@@ -52,8 +52,10 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
     const a = createGame(7, city, b);
     const c = createGame(7, city, b);
     expect(a.tr.gigs).toEqual(c.tr.gigs);
-    expect(a.tr.quota.craftSmall).toBeGreaterThanOrEqual(36);
-    expect(a.tr.quota.craftSmall).toBeLessThanOrEqual(44);
+    // 仕様書の式（40）に、月の短さの倍率（0.3）を掛けた 12 が、±10% の中でゆらぐ
+    expect(a.tr.quota.craftSmall).toBeGreaterThanOrEqual(11);
+    expect(a.tr.quota.craftSmall).toBeLessThanOrEqual(13);
+    expect(baseQuota(a.tr, J.craftSmall, b.time.quotaScale)).toBe(12);
     expect(a.tr.gigs.length).toBe(a.tr.quota.handyTidy + a.tr.quota.handyClean);
     expect(a.tr.gigs.every((g) => clientsOf(city).includes(g.poi) && !g.taken)).toBe(true);
   });
@@ -88,7 +90,7 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
     expect(s.tr.stock.craftSmall).toBe(100 - q);
     expect(poiActions(s, city, at(s, 'market'), b).find((a) => a.id === 'sellGoods')!.ok).toBe(false);
     act(s, 'market', 'pitchCraft'); // 売り込むと、枠が増える
-    expect(left(s.tr, 'craftSmall')).toBe(10);
+    expect(left(s.tr, 'craftSmall')).toBe(3); // 仕様書の +10 に、月の短さの倍率を掛けた数
   });
   it('便利屋：届いた話を受け、その家へ行って仕事をすると、その場でお金が入る。受けて守らないと知名度と信用が下がる', () => {
     const s = createGame(7, city, b);
