@@ -100,6 +100,15 @@ export const sfx = {
   tick() {
     tone(880, 0.025, { type: 'triangle', vol: 0.05 });
   },
+  // ぶつかった音
+  crash() {
+    noise(0.16, 900, 180, 0.2);
+    tone(110, 0.14, { type: 'sawtooth', vol: 0.12, to: 60 });
+  },
+  // 追われているときの音（高い・低いを交互に）
+  siren(high: boolean) {
+    tone(high ? 880 : 660, 0.3, { type: 'triangle', vol: 0.06 });
+  },
   fail() {
     tone(196, 0.24, { type: 'sawtooth', vol: 0.11, to: 120 });
   },

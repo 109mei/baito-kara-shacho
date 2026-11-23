@@ -1,11 +1,98 @@
 {
-  "world": { "size": 8000, "arterialHalf": 13, "minorHalf": 6, "riverHalf": 75 },
-  "move": { "walk": 6.5, "bike": 12, "car": 27, "accel": 14, "brake": 30, "drag": 9, "offroad": 0.45 },
-  "time": { "minutesPerSecond": 2, "startHour": 8 },
-  "money": { "startCash": 30000, "living": 3500, "wageConbini": 1100, "wageWarehouse": 1400, "shiftHours": 4, "bike": 18000, "car": 350000, "crowbar": 4000, "laptop": 90000, "pawnRate": 0.6 },
-  "biz": { "stall": 120000, "stallProfit": 7000, "shop": 600000, "shopProfit": 30000, "upgradeFactor": 0.8, "levelProfit": 0.5, "maxLevel": 5 },
-  "heat": { "perStar": 20, "decay": 1.4, "stealSeen": 26, "stealUnseen": 8, "hitPed": 15, "hitPolice": 18, "burgleQuiet": 6, "burgleLoud": 32, "burgleDay": 14, "hackFail": 35, "hackOk": 5, "rob": 86, "fine": 1500, "jailHoursPerStar": 6, "confiscate": 0.3 },
-  "police": { "sight": 170, "speed": 24.5, "hunterSpeed": 28.5, "catchDist": 7, "catchSpeed": 3, "catchTime": 0.9, "patrols": 2, "chasers": [0, 1, 2, 3, 5, 6], "hunters": 2 },
-  "crime": { "lootMin": 15000, "lootMax": 70000, "hackMin": 60000, "hackMax": 140000, "robMin": 350000, "robMax": 650000, "chopMin": 40000, "chopMax": 90000, "houseDays": 4, "atmDays": 2, "bankDays": 3 },
-  "traffic": { "cars": 26, "parked": 12, "peds": 22, "radius": 620, "arterialSpeed": 15, "minorSpeed": 9 }
+  "world": {
+    "size": 8000,
+    "arterialHalf": 16,
+    "minorHalf": 8,
+    "riverHalf": 75
+  },
+  "move": {
+    "walk": 6.5,
+    "bike": 12,
+    "car": 27,
+    "accel": 14,
+    "brake": 30,
+    "drag": 9,
+    "offroad": 0.45
+  },
+  "time": {
+    "minutesPerSecond": 2,
+    "startHour": 8
+  },
+  "money": {
+    "startCash": 30000,
+    "living": 3500,
+    "wageConbini": 1100,
+    "wageWarehouse": 1400,
+    "shiftHours": 4,
+    "bike": 18000,
+    "car": 350000,
+    "crowbar": 4000,
+    "laptop": 90000,
+    "pawnRate": 0.6
+  },
+  "biz": {
+    "stall": 120000,
+    "stallProfit": 7000,
+    "shop": 600000,
+    "shopProfit": 30000,
+    "upgradeFactor": 0.8,
+    "levelProfit": 0.5,
+    "maxLevel": 5
+  },
+  "heat": {
+    "perStar": 20,
+    "decay": 1.4,
+    "stealSeen": 26,
+    "stealUnseen": 8,
+    "hitPed": 15,
+    "hitPolice": 18,
+    "burgleQuiet": 6,
+    "burgleLoud": 32,
+    "burgleDay": 14,
+    "hackFail": 35,
+    "hackOk": 5,
+    "rob": 86,
+    "fine": 1500,
+    "jailHoursPerStar": 6,
+    "confiscate": 0.3
+  },
+  "police": {
+    "sight": 170,
+    "speed": 24.5,
+    "hunterSpeed": 28.5,
+    "catchDist": 7,
+    "catchSpeed": 3,
+    "catchTime": 0.9,
+    "patrols": 2,
+    "chasers": [
+      0,
+      1,
+      2,
+      3,
+      5,
+      6
+    ],
+    "hunters": 2
+  },
+  "crime": {
+    "lootMin": 15000,
+    "lootMax": 70000,
+    "hackMin": 60000,
+    "hackMax": 140000,
+    "robMin": 350000,
+    "robMax": 650000,
+    "chopMin": 40000,
+    "chopMax": 90000,
+    "houseDays": 4,
+    "atmDays": 2,
+    "bankDays": 3
+  },
+  "traffic": {
+    "cars": 26,
+    "parked": 12,
+    "peds": 22,
+    "radius": 620,
+    "arterialSpeed": 15,
+    "minorSpeed": 9
+  }
 }

@@ -100,7 +100,7 @@ function pay(s: GameState, amount: number, cleanOnly: boolean): boolean {
 export function nearby(s: GameState, city: City): { car?: Car; poi?: Poi } {
   const out: { car?: Car; poi?: Poi } = {};
   if (s.ride === null) {
-    let bd = 9;
+    let bd = 12;
     for (const c of s.cars) {
       if (c.kind === 'police' || c.kind === 'hunter') continue;
       if (c.kind === 'npc' && Math.abs(c.v) > 4) continue;
@@ -255,8 +255,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     if (car) {
       // 降りる：車の左、だめなら右
       for (const side of [1, -1]) {
-        const x = car.x + Math.sin(car.a) * 3 * side;
-        const y = car.y - Math.cos(car.a) * 3 * side;
+        const x = car.x + Math.sin(car.a) * 5 * side;
+        const y = car.y - Math.cos(car.a) * 5 * side;
         if (!solid(city, x, y, 1.4)) {
           s.x = x;
           s.y = y;
@@ -490,7 +490,7 @@ function follow(c: Car, s: GameState, city: City, bal: Balance, dt: number, bloc
     c.s = 0;
     return;
   }
-  const off = art ? 6.5 : 3;
+  const off = city.half(art) / 2;
   const tx = ax + dx * c.s + dy * off;
   const ty = ay + dy * c.s - dx * off;
   const k = Math.min(1, dt * 7);
@@ -558,8 +558,8 @@ export function step(s: GameState, city: City, inp: { mx: number; my: number }, 
           const [bx, by] = nodeXY(city, c.to);
           const len = Math.hypot(bx - ax, by - ay) || 1;
           const f = 0.25 + rnd(s) * 0.5;
-          c.x = ax + (bx - ax) * f + ((by - ay) / len) * 7.6;
-          c.y = ay + (by - ay) * f - ((bx - ax) / len) * 7.6;
+          c.x = ax + (bx - ax) * f + ((by - ay) / len) * (city.half(false) + 2.8);
+          c.y = ay + (by - ay) * f - ((bx - ax) / len) * (city.half(false) + 2.8);
           c.a = Math.atan2(by - ay, bx - ax);
           c.value = Math.round((bal.crime.chopMin + (bal.crime.chopMax - bal.crime.chopMin) * rnd(s)) / 1000) * 1000;
           if (!solid(city, c.x, c.y, 2)) s.cars.push(c);
@@ -631,7 +631,7 @@ export function step(s: GameState, city: City, inp: { mx: number; my: number }, 
         c.stuck = 0;
       }
       if (dist < bal.police.catchDist && (!car || speed < bal.police.catchSpeed)) close = true;
-      if (car && dist < 4.2 && s.hitCd <= 0) {
+      if (car && dist < 6.5 && s.hitCd <= 0) {
         s.hitCd = 1;
         car.v *= -0.3;
         c.v *= 0.3;
@@ -656,15 +656,15 @@ export function step(s: GameState, city: City, inp: { mx: number; my: number }, 
       const rx = ox - c.x;
       const ry = oy - c.y;
       const f = rx * fx + ry * fy;
-      return f > 0.5 && f < 13 && Math.abs(rx * fy - ry * fx) < 2.6;
+      return f > 0.5 && f < 21 && Math.abs(rx * fy - ry * fx) < 3.4;
     };
-    if (dist < 16 && ahead(s.x, s.y)) blocked = true;
-    else for (const o of s.cars) if (o !== c && o.kind !== 'parked' && Math.abs(o.x - c.x) < 14 && Math.abs(o.y - c.y) < 14 && ahead(o.x, o.y)) {
+    if (dist < 24 && ahead(s.x, s.y)) blocked = true;
+    else for (const o of s.cars) if (o !== c && o.kind !== 'parked' && Math.abs(o.x - c.x) < 22 && Math.abs(o.y - c.y) < 22 && ahead(o.x, o.y)) {
       blocked = true;
       break;
     }
     follow(c, s, city, bal, dt, blocked);
-    if (car && dist < 3.6 && speed > 5 && s.hitCd <= 0) {
+    if (car && dist < 6.5 && speed > 5 && s.hitCd <= 0) {
       s.hitCd = 0.8;
       car.v *= -0.3;
       ev.push({ type: 'sfx', name: 'crash' });
@@ -693,7 +693,7 @@ export function step(s: GameState, city: City, inp: { mx: number; my: number }, 
     const k = Math.min(1, dt * 5);
     p.x += (tx - p.x) * k;
     p.y += (ty - p.y) * k;
-    if (car && speed > 6 && Math.hypot(p.x - s.x, p.y - s.y) < 2.6) {
+    if (car && speed > 6 && Math.hypot(p.x - s.x, p.y - s.y) < 4.5) {
       s.peds.splice(i, 1);
       addHeat(s, bal.heat.hitPed, bal, ev);
       ev.push({ type: 'sfx', name: 'crash' });
