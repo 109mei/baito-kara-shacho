@@ -2,10 +2,11 @@
 // 書き換えは「命令」（apply）と「1コマ進める」（step）だけで行う。乱数は種つき。
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
+import { addCredit, capCredit, closeMonth, learn, newEco, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export type CarKind = 'npc' | 'parked' | 'police' | 'hunter' | 'mine' | 'stolen';
 export interface Car { id: number; kind: CarKind; bike: boolean; x: number; y: number; a: number; v: number; color: number; from: number; to: number; s: number; chase: boolean; think: number; path: number[]; stuck: number; value: number }
@@ -31,6 +32,7 @@ export interface GameState {
   thugs: Thug[]; shots: Shot[];
   // 強盗の道具：ピッキング道具、ドリル、手に入れた鍵（場所の番号）
   lockpick: boolean; drill: boolean; keys: number[];
+  eco: Eco; // 経営のお金（月末の締め・信用・借入・税）
   inside: Inside | null;
 }
 // 建物の中にいるときの様子
@@ -51,7 +53,9 @@ export type Ev =
   | { type: 'toast'; text: string; tone: 'good' | 'bad' | '' }
   | { type: 'busted'; fine: number; hours: number; lost: number }
   | { type: 'star'; stars: number }
-  | { type: 'day'; living: number; profit: number; washed: number; turf: number; lost: string; news: string }
+  | { type: 'day'; profit: number; washed: number; turf: number; lost: string; news: string }
+  | { type: 'month'; rec: MonthRec } // 月末の締め（月次レポート）
+  | { type: 'bankrupt' }
   | { type: 'down'; lost: number }
   | { type: 'skip' }
   | { type: 'sfx'; name: 'coin' | 'bigcoin' | 'crash' | 'door' | 'fail' | 'ok' | 'shot' | 'hurt' };
@@ -65,6 +69,7 @@ export type Cmd =
   | { type: 'leave' }
   | { type: 'loot'; i: number }
   | { type: 'fire' }
+  | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
 export interface Act { id: string; label: string; sub?: string; ok: boolean; why?: string; mini?: boolean; crime?: boolean }
@@ -90,7 +95,7 @@ export function createGame(seed: number, city: City, bal: Balance): GameState {
     cash: bal.money.startCash, dirty: 0, bank: 0, loot: 0, heat: 0, record: 0,
     crowbar: false, laptop: false, biz: [], cool: {}, way: null, route: [],
     cars: [], peds: [], nextId: 1, seen: false, catchT: 0, hitCd: 0, spawnT: 0, earned: 0, crimes: 0, inside: null,
-    hp: 100, gun: false, hide: null, stash: 0, turf: [0, 1, 2, 1, 2, 0], hostile: 0, fireCd: 0, warnCd: 0, thugs: [], shots: [], lockpick: false, drill: false, keys: [],
+    hp: 100, gun: false, hide: null, stash: 0, turf: [0, 1, 2, 1, 2, 0], hostile: 0, fireCd: 0, warnCd: 0, thugs: [], shots: [], lockpick: false, drill: false, keys: [], eco: newEco(bal),
   };
 }
 
@@ -230,6 +235,7 @@ export function poiActions(s: GameState, city: City, p: Poi, bal: Balance): Act[
       return [
         { id: 'deposit', label: '全部あずける', sub: yen(s.cash), ok: s.cash > 0, why: '現金がない' },
         { id: 'withdraw', label: '5万円おろす', sub: `預金 ${yen(s.bank)}`, ok: s.bank >= 50000, why: '預金が足りない' },
+        { id: 'loan', label: '融資の相談', sub: `信用のランク ${rankOf(s.eco.credit)}`, ok: true },
       ];
     case 'police': {
       const fine = Math.round(s.heat * bal.heat.fine);
@@ -354,10 +360,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   s.dirty -= washed;
   s.bank += profit + washed;
   s.earned += profit;
-  const living = bal.money.living;
-  const fromCash = Math.min(s.cash, living);
-  s.cash -= fromCash;
-  s.bank -= living - fromCash; // 足りない分は預金から（預金は借金にもなる）
+  s.eco.m.sales += profit;
   const mine = s.turf.filter((t) => t === -1).length;
   const turf = mine * bal.gang.turfIncome;
   s.dirty += turf;
@@ -388,8 +391,34 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       news = `${GANGS[g].name}が${GANGS[from].name}の縄張りを奪った`;
     }
   }
-  ev.push({ type: 'day', living, profit, washed, turf, lost, news });
+  ev.push({ type: 'day', profit, washed, turf, lost, news });
+  // 月末の締め：給料 → 家賃 → 返済 → 生活費 → 税 の順に払う。払えない物は来月へ回り、2か月続くと倒産
+  s.eco.days += 1;
+  if (s.eco.days % bal.time.daysPerMonth === 0) {
+    const out = closeMonth(s.eco, { cash: s.cash, bank: s.bank, living: monthLiving(s, bal), wages: 0, rent: 0, hasBiz: s.biz.length > 0 }, bal);
+    s.cash = out.cash;
+    s.bank = out.bank;
+    if (out.bankrupt) {
+      // 倒産：事業・乗り物・借入をすべて失い、アルバイトからやり直す。知識・道具・鍵は残る
+      s.biz = [];
+      const mine = s.cars.find((c) => c.kind === 'mine');
+      if (mine && s.ride === mine.id) s.ride = null;
+      s.cars = s.cars.filter((c) => c.kind !== 'mine');
+      s.eco.loans = [];
+      s.eco.tax = [];
+      s.cash = bal.credit.restartCash;
+      s.bank = 0;
+      s.eco.credit = 0;
+      capCredit(s.eco, bal.credit.bankruptCap, bal);
+      out.rec.notes.push('払えない月が 2回 続いて、倒産した');
+      ev.push({ type: 'bankrupt' });
+    }
+    ev.push({ type: 'month', rec: out.rec });
+  }
 }
+
+// 月の生活費（家賃と食費など。物価で上がる）
+export const monthLiving = (s: GameState, bal: Balance) => Math.round(bal.money.living * bal.time.daysPerMonth * s.eco.infl);
 
 // 時間を飛ばす（働く・寝る・服役）
 function skip(s: GameState, city: City, minutes: number, bal: Balance, ev: Ev[]) {
@@ -417,6 +446,8 @@ function busted(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   s.cash -= Math.round(s.cash * bal.heat.confiscate);
   s.dirty = 0;
   s.loot = 0;
+  addCredit(s.eco, bal.credit.arrest, bal); // 逮捕：信用が大きく下がり、しばらく上限がつく
+  capCredit(s.eco, bal.credit.arrestCap, bal);
   const car = riding(s);
   if (car && car.kind === 'stolen') s.cars = s.cars.filter((c) => c !== car);
   s.ride = null;
@@ -476,6 +507,24 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     near.v = 0;
     s.ride = near.id;
     ev.push({ type: 'sfx', name: 'door' });
+    return ev;
+  }
+  if (cmd.type === 'loan') {
+    const q = city.pois[cmd.id];
+    if (!q || q.kind !== 'bank' || Math.hypot(q.x - s.x, q.y - s.y) > 26) return ev;
+    if (cmd.kind === 'start' && !((cmd.plan ?? 0) > 0)) {
+      toast('計画（月の売上の見込み）が要る');
+      return ev;
+    }
+    const loan = takeLoan(s.eco, cmd.kind, cmd.amount, Math.max(0, s.cash) + Math.max(0, s.bank), false, bal);
+    if (!loan) {
+      toast('審査に通らなかった');
+      return ev;
+    }
+    if (cmd.kind === 'start') s.eco.plan = cmd.plan ?? 0;
+    s.bank += loan.amount;
+    toast(`${yen(loan.amount)} を借りた。毎月 ${yen(loan.pay)} ずつ返す`, 'good');
+    ev.push({ type: 'sfx', name: 'coin' });
     return ev;
   }
   if (cmd.type === 'shoot') {
@@ -730,6 +779,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       skip(s, city, m.shiftHours * 60, bal, ev);
       s.cash += wage;
       s.earned += wage;
+      learn(s.eco, p.kind === 'conbini' ? 'retail' : 'logi', 1); // 働くと、その業種の知識がつく
       toast(`+${yen(wage)}`, 'good');
       ev.push({ type: 'sfx', name: 'coin' });
       break;
@@ -1322,7 +1372,7 @@ export function toSave(s: GameState) {
   return {
     v: SAVE_VERSION, seed: s.seed, rng: s.rng, clock: s.clock, x: s.x, y: s.y, cash: s.cash, dirty: s.dirty, bank: s.bank, loot: s.loot, heat: s.heat, record: s.record,
     crowbar: s.crowbar, laptop: s.laptop, biz: s.biz, cool: s.cool, earned: s.earned, crimes: s.crimes,
-    gun: s.gun, hide: s.hide, stash: s.stash, turf: s.turf, lockpick: s.lockpick, drill: s.drill, keys: s.keys,
+    gun: s.gun, hide: s.hide, stash: s.stash, turf: s.turf, lockpick: s.lockpick, drill: s.drill, keys: s.keys, eco: s.eco,
     mine: mine ? { bike: mine.bike, x: mine.x, y: mine.y, a: mine.a, riding: s.ride === mine.id } : null,
   };
 }
@@ -1330,6 +1380,8 @@ export type SaveData = ReturnType<typeof toSave>;
 export function fromSave(d: SaveData, city: City, bal: Balance): GameState {
   const s = createGame(d.seed, city, bal);
   Object.assign(s, { rng: d.rng, clock: d.clock, x: d.x, y: d.y, cash: d.cash, dirty: d.dirty, bank: d.bank, loot: d.loot, heat: d.heat, record: d.record, crowbar: d.crowbar, laptop: d.laptop, biz: d.biz, cool: d.cool, earned: d.earned, crimes: d.crimes, gun: !!d.gun, hide: d.hide ?? null, stash: d.stash ?? 0, turf: d.turf ?? s.turf, lockpick: !!d.lockpick, drill: !!d.drill, keys: d.keys ?? [] });
+  if (d.eco) s.eco = { ...newEco(bal), ...d.eco };
+  s.bank = Math.max(0, s.bank); // 預金は借金にならない（借りるのは融資だけ）
   if (d.mine) {
     const c: Car = { id: s.nextId++, kind: 'mine', bike: d.mine.bike, x: d.mine.x, y: d.mine.y, a: d.mine.a, v: 0, color: d.mine.bike ? 0x1f8a6f : 0x2f7fc1, from: 0, to: 0, s: 0, chase: false, think: 0, path: [], stuck: 0, value: 0 };
     s.cars.push(c);

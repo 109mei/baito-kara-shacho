@@ -2,8 +2,9 @@
 // ルール本体は 1/30 秒の決まった刻みで進める。画面の数字は 1 秒に 10 回だけ更新する。
 import { create } from 'zustand';
 import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
+import { dateOf, monthBills, rankOf, type MonthRec } from '../core/eco';
 import { blocked } from '../core/rooms';
-import { apply, createGame, dayOf, fromSave, hourOf, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState } from '../core/sim';
+import { apply, createGame, dayOf, fromSave, hourOf, monthLiving, nearby, nearSpot, ownedPoi, poiActions, poiTitle, rank, riding, roomFor, routesOf, spotInfo, stars, step, STEP, toSave, type Cmd, type Ev, type GameState } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { net } from '../net/room';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -27,6 +28,8 @@ export interface Hud {
   tools: string[]; // 持っている道具
   zone: boolean; // 立入禁止の所にいる
   mates: number; // いっしょに遊んでいる人の数（同じページをいま開いている人）
+  date: string; credit: number; grade: string; // 暦、信用の点とランク
+  short: number; // 月末の払いに足りない額（足りていれば 0）
   aim: boolean; // 撃てる相手が、届く所にいる
   caught: number; // 捕まるまでの度合い（0〜1）
 }
@@ -43,6 +46,10 @@ interface Store {
   busted: Extract<Ev, { type: 'busted' }> | null;
   down: number | null; // 倒されたとき：失った額
   hurt: number; // 撃たれた回数（画面のふちを赤く光らせる合図）
+  report: MonthRec | null; // 月次レポート（月末の締め）
+  broke: boolean; // 倒産した
+  loan: number | null; // 融資の相談をしている銀行
+  borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
   fire: () => void;
   bigMap: boolean;
   fade: number;
@@ -55,7 +62,7 @@ interface Store {
   openPoi: () => void;
   act: (poi: number, act: string, mini: boolean) => void;
   miniDone: (hits: number) => void;
-  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'down' | 'routes'>>) => void;
+  set: (p: Partial<Pick<Store, 'panel' | 'panelActs' | 'bigMap' | 'busted' | 'mini' | 'down' | 'routes' | 'report' | 'broke' | 'loan'>>) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   toast: (text: string, tone?: string) => void;
   guide: () => void;
@@ -111,6 +118,8 @@ function snapshot(): Hud {
     nearPoi: near.poi ? near.poi.id : null, nearName: near.poi ? poiTitle(s, city, near.poi) : '', way: !!s.way,
     goal: goalOf(s)[0], goalKind: goalOf(s)[1],
     hp: Math.max(0, Math.round(s.hp)), gun: s.gun, stash: s.stash, turfs: s.turf.filter((t) => t === -1).length,
+    date: ((d) => `${d.year}年${d.month}月${d.day}日`)(dateOf(s.eco, b)), credit: Math.round(s.eco.credit), grade: rankOf(s.eco.credit),
+    short: Math.max(0, monthBills(s.eco, monthLiving(s, b), b) - s.cash - Math.max(0, s.bank)),
     mates: net.online ? net.mates.size : -1,
     aim: s.gun && !s.inside && (s.thugs.some((t) => Math.hypot(t.x - s.x, t.y - s.y) < b.gang.gunRange) || (net.online && !!net.nearest(s.x, s.y, b.gang.gunRange))),
     caught: Math.min(1, s.catchT / b.police.catchTime),
@@ -159,11 +168,15 @@ export const useGame = create<Store>((set, get) => {
         set({ down: e.lost, panel: null, mini: null });
         sfx.month(false);
       } else if (e.type === 'day') {
-        const net = e.profit + e.turf - e.living;
-        get().toast(`1日の終わり　事業 +¥${e.profit.toLocaleString('ja-JP')}${e.turf ? `　縄張り +¥${e.turf.toLocaleString('ja-JP')}` : ''}　生活費 −¥${e.living.toLocaleString('ja-JP')}`, net >= 0 ? 'good' : '');
+        if (e.profit || e.turf) get().toast(`1日の終わり${e.profit ? `　事業 +¥${e.profit.toLocaleString('ja-JP')}` : ''}${e.turf ? `　縄張り +¥${e.turf.toLocaleString('ja-JP')}` : ''}`, 'good');
+        SaveStore.snapshot(toSave(core)); // 1日の終わりの保存は、直近3回分を残す
         if (e.lost) get().toast(e.lost, 'bad');
         if (e.news) get().toast(e.news, '');
-      } else if (e.type === 'skip') set({ fade: get().fade + 1 });
+      } else if (e.type === 'month') {
+        set({ report: e.rec, panel: null, loan: null });
+        sfx.month(e.rec.unpaid.length === 0);
+      } else if (e.type === 'bankrupt') set({ broke: true });
+      else if (e.type === 'skip') set({ fade: get().fade + 1 });
     }
   };
   net.onHit = (from) => {
@@ -175,7 +188,7 @@ export const useGame = create<Store>((set, get) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const st = get();
-    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null;
+    const paused = st.phase !== 'play' || st.panel !== null || st.mini !== null || st.bigMap || st.busted !== null || st.down !== null || st.routes !== null || st.report !== null || st.loan !== null;
     if (!paused) {
       acc += dt;
       let n = 0;
@@ -233,6 +246,15 @@ export const useGame = create<Store>((set, get) => {
     busted: null,
     down: null,
     hurt: 0,
+    report: null,
+    broke: false,
+    loan: null,
+    borrow: (kind, amount, plan) => {
+      const id = get().loan;
+      if (id === null) return;
+      get().send({ type: 'loan', id, kind, amount, plan });
+      set({ loan: null });
+    },
     bigMap: false,
     fade: 0,
     toasts: [],
@@ -243,7 +265,7 @@ export const useGame = create<Store>((set, get) => {
       core = saved && saved.seed === CITY_SEED ? fromSave(saved, city, b) : createGame(CITY_SEED, city, b);
       if (fresh) SaveStore.clear();
       input.fire = false;
-      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, routes: null, busted: null, down: null, bigMap: false });
+      set({ phase: 'play', hud: snapshot(), panel: null, panelActs: null, mini: null, routes: null, busted: null, down: null, bigMap: false, report: null, broke: false, loan: null });
       cancelAnimationFrame(raf);
       last = performance.now();
       raf = requestAnimationFrame(loop);

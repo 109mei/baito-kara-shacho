@@ -16,7 +16,9 @@
   },
   "time": {
     "minutesPerSecond": 2,
-    "startHour": 8
+    "startHour": 8,
+    "daysPerMonth": 3,
+    "monthsPerYear": 12
   },
   "money": {
     "startCash": 30000,
@@ -164,5 +166,39 @@
       "caseMin": 0,
       "caseMax": 0
     }
+  },
+  "credit": {
+    "start": 100,
+    "run": 5,
+    "black": 5,
+    "paid": 5,
+    "late": -30,
+    "red3": -20,
+    "goodYear": 40,
+    "taxPaid": 20,
+    "arrest": -300,
+    "arrestCap": 400,
+    "bankruptCap": 500,
+    "capMonths": 60,
+    "planGood": 10,
+    "planBad": -20,
+    "restartCash": 100000
+  },
+  "loan": {
+    "rateD": 0.12,
+    "rateC": 0.08,
+    "rateB": 0.05,
+    "rateA": 0.02,
+    "startRatio": 2,
+    "startKnow": 30,
+    "months": 24,
+    "bankMonths": 36,
+    "bankPayShare": 0.5,
+    "deferFee": 0.03
+  },
+  "tax": {
+    "person": 0.2,
+    "corp": 0.3,
+    "delayMonths": 2
   }
 }

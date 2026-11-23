@@ -289,3 +289,31 @@ test('ほかの人と一緒に遊ぶ：同じページを開いている人が�
   expect(Math.abs(sent.at(-1)!.x - a.x)).toBeLessThan(2);
 });
 
+test('月末の締め：3日目の終わりに月次レポートが出る。銀行の窓口で、融資の条件が見える', async ({ page }) => {
+  await fresh(page);
+  await page.locator('[data-start="new"]').click();
+  // 自宅で3回寝ると、1か月（3日）が終わる
+  await enter(page);
+  for (let d = 0; d < 3; d++) {
+    await use(page, 0);
+    await page.locator('[data-act="sleep"]').click();
+    await page.waitForTimeout(500);
+  }
+  await expect(page.locator('[data-report]')).toBeVisible();
+  await page.waitForTimeout(500);
+  await shot(page, '18-month-report');
+  await page.locator('[data-report] [data-ok]').click();
+  expect((await state(page)).cash).toBe(30000 - 3500 * 3);
+  await out(page);
+  await page.evaluate(() => window.__game!.clock(10));
+  await goTo(page, 'bank');
+  await page.locator('[data-ctx="poi"]').click();
+  await page.locator('[data-route="front"]').click();
+  await use(page, 0);
+  await page.locator('[data-act="loan"]').click();
+  await expect(page.locator('[data-loan]')).toBeVisible();
+  await expect(page.locator('[data-offer="start"] li.ng')).toHaveCount(2);
+  await page.waitForTimeout(300);
+  await shot(page, '19-loan');
+});
+

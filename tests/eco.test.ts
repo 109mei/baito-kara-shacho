@@ -1,0 +1,185 @@
+import { describe, expect, it } from 'vitest';
+import { makeCity } from '../src/core/city';
+import { addCredit, capCredit, closeMonth, dateOf, loanOffers, monthlyPay, newEco, rankOf, takeLoan } from '../src/core/eco';
+import { apply, createGame, fromSave, monthLiving, step, toSave } from '../src/core/sim';
+import { balance as b } from '../src/data/schema';
+
+const city = makeCity(20261123, b);
+const dpm = b.time.daysPerMonth;
+// 月を n 回締める（商売なし・給料なし）
+const months = (e: ReturnType<typeof newEco>, n: number, w: Partial<Parameters<typeof closeMonth>[1]> = {}) => {
+  let out: ReturnType<typeof closeMonth> = { cash: w.cash ?? 1e9, bank: 0, bankrupt: false, rec: null as unknown as ReturnType<typeof closeMonth>['rec'] };
+  for (let i = 0; i < n; i++) {
+    e.days += dpm;
+    out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: false, ...w, ...(i > 0 ? { cash: out.cash } : {}) }, b);
+  }
+  return out;
+};
+
+describe('お金の決まり', () => {
+  it('暦：1か月は数値の表の日数、1年は12か月', () => {
+    const e = newEco(b);
+    expect(dateOf(e, b)).toEqual({ year: 1, month: 1, day: 1 });
+    e.days = dpm * 13 + 1;
+    expect(dateOf(e, b)).toEqual({ year: 2, month: 2, day: 2 });
+  });
+  it('返済は毎月同じ額（借りた額 × 月の利率 ÷（1 −（1 + 月の利率）の −回数 乗））', () => {
+    expect(monthlyPay(1000000, 0.12, 24)).toBe(47073);
+    expect(monthlyPay(240000, 0, 24)).toBe(10000);
+  });
+  it('月末の締め：期日どおりに払うと信用が上がる。商売を続けて黒字なら、さらに上がる', () => {
+    const e = newEco(b);
+    const a = months(e, 1, { living: 10000 });
+    expect(a.cash).toBe(1e9 - 10000);
+    expect(e.credit).toBe(b.credit.start + b.credit.paid);
+    e.m.sales = 50000;
+    e.m.cost = 20000;
+    const c = months(e, 1, { hasBiz: true, wages: 5000, rent: 5000 });
+    expect(c.rec.profit).toBe(20000);
+    expect(c.rec.creditDiff).toBe(b.credit.paid + b.credit.run + b.credit.black);
+    expect(e.m).toEqual({ sales: 0, cost: 0 });
+    expect(e.hist.length).toBe(2);
+  });
+  it('払えない物は来月へ回る（3%上乗せ・信用が下がる）。次の月末にも払えないと倒産', () => {
+    const e = newEco(b);
+    e.credit = 300;
+    const a = months(e, 1, { cash: 4000, living: 10000 });
+    expect(a.bankrupt).toBe(false);
+    expect(a.rec.unpaid).toEqual([{ what: '生活費', amount: Math.round(6000 * 1.03) }]);
+    expect(e.credit).toBe(300 + b.credit.late);
+    e.days += dpm;
+    const ok = closeMonth(structuredClone(e), { cash: 50000, bank: 0, living: 10000, wages: 0, rent: 0, hasBiz: false }, b);
+    expect(ok.bankrupt).toBe(false);
+    expect(ok.cash).toBe(50000 - 6180 - 10000);
+    const ng = closeMonth(e, { cash: 100, bank: 0, living: 10000, wages: 0, rent: 0, hasBiz: false }, b);
+    expect(ng.bankrupt).toBe(true);
+  });
+  it('年末の決算：もうけの2割が税になり、2か月後に納める。期日どおりに納めると信用が上がる', () => {
+    const e = newEco(b);
+    for (let m = 0; m < b.time.monthsPerYear; m++) {
+      e.m.sales = 30000;
+      months(e, 1, { hasBiz: true });
+    }
+    expect(e.closings).toBe(1);
+    expect(e.tax).toEqual([{ amount: 30000 * 12 * b.tax.person, due: 11 + b.tax.delayMonths }]);
+    expect(e.infl).toBeCloseTo(1.02);
+    months(e, 1);
+    expect(e.tax.length).toBe(1);
+    const before = e.credit;
+    const out = months(e, 1);
+    expect(out.rec.tax).toBe(72000);
+    expect(e.tax.length).toBe(0);
+    expect(e.credit).toBe(before + b.credit.taxPaid + b.credit.paid);
+  });
+  it('信用のランクと上限：200点ごとに E→A。倒産や逮捕のあとは、しばらく上限がつく', () => {
+    expect([0, 199, 200, 400, 600, 800, 1000].map(rankOf)).toEqual(['E', 'E', 'D', 'C', 'B', 'A', 'A']);
+    const e = newEco(b);
+    e.credit = 700;
+    capCredit(e, 400, b);
+    expect(e.credit).toBe(400);
+    addCredit(e, 300, b);
+    expect(e.credit).toBe(400);
+    e.days = dpm * (b.credit.capMonths + 1);
+    addCredit(e, 300, b);
+    expect(e.credit).toBe(700);
+  });
+  it('融資の審査に運はない：条件をすべて満たせば必ず通り、足りない条件は見える', () => {
+    const e = newEco(b);
+    let o = loanOffers(e, 300000, false, b);
+    expect(o[0].ok).toBe(false);
+    expect(o[0].conds.filter((c) => !c.ok).length).toBe(2); // ランクと知識
+    expect(takeLoan(e, 'start', 100000, 300000, false, b)).toBeNull();
+    e.credit = 250;
+    e.know.retail = 30;
+    o = loanOffers(e, 300000, false, b);
+    expect(o[0].ok).toBe(true);
+    expect(o[0].max).toBe(600000); // 自己資金の2倍まで
+    expect(o[0].rate).toBe(b.loan.rateD);
+    expect(takeLoan(e, 'start', 700000, 300000, false, b)).toBeNull();
+    const loan = takeLoan(e, 'start', 600000, 300000, false, b)!;
+    expect(loan.pay).toBe(monthlyPay(600000, b.loan.rateD, b.loan.months));
+    expect(loanOffers(e, 300000, false, b)[0].ok).toBe(false); // 創業の融資は1回だけ
+    // 返済：利息のぶんだけ多く払い、回数どおりに終わる
+    let paid = 0;
+    for (let m = 0; m < b.loan.months; m++) paid += months(e, 1).rec.repay;
+    expect(e.loans.length).toBe(0);
+    expect(paid).toBeGreaterThan(600000);
+    expect(paid).toBeLessThan(600000 * 1.14);
+    // 銀行：決算1回・ランクC・月のもうけの半分まで
+    expect(loanOffers(e, 0, false, b)[1].ok).toBe(false);
+    e.credit = 450;
+    e.closings = 1;
+    e.hist.slice(-3).forEach((h) => (h.profit = 60000));
+    const bank = loanOffers(e, 0, false, b)[1];
+    expect(bank.ok).toBe(true);
+    expect(monthlyPay(bank.max, bank.rate, bank.months)).toBeLessThanOrEqual(30000);
+  });
+});
+
+describe('お金の決まり（街の中で）', () => {
+  const sleep = (s: ReturnType<typeof createGame>) => {
+    s.x = city.home.x;
+    s.y = city.home.y;
+    return apply(s, city, { type: 'poi', id: city.home.id, act: 'sleep' }, b);
+  };
+  it('生活費は月末にまとめて出ていく。月末に月次レポートが出る', () => {
+    const s = createGame(7, city, b);
+    const cash = s.cash;
+    let ev = [...sleep(s), ...sleep(s)];
+    expect(s.cash).toBe(cash);
+    expect(ev.some((e) => e.type === 'month')).toBe(false);
+    ev = sleep(s);
+    const m = ev.find((e) => e.type === 'month');
+    expect(m && m.type === 'month' && m.rec.living).toBe(monthLiving(s, b));
+    expect(s.cash).toBe(cash - b.money.living * dpm);
+    expect(s.eco.credit).toBe(b.credit.start + b.credit.paid);
+  });
+  it('払えない月が2回続くと倒産：事業と乗り物と借入を失い、現金10万円でアルバイトからやり直す', () => {
+    const s = createGame(7, city, b);
+    s.cash = 0;
+    s.biz = [{ poi: city.pois.find((p) => p.kind === 'lot')!.id, type: 'stall', level: 1 }];
+    s.biz = [];
+    s.eco.know.retail = 55;
+    let broke = false;
+    for (let d = 0; d < dpm * 2; d++) {
+      s.cash = 0;
+      s.bank = 0;
+      broke = sleep(s).some((e) => e.type === 'bankrupt') || broke;
+    }
+    expect(broke).toBe(true);
+    expect(s.cash).toBe(b.credit.restartCash);
+    expect(s.eco.credit).toBe(0);
+    expect(s.eco.know.retail).toBe(55); // 知識は残る
+    expect(s.eco.owed).toEqual([]);
+  });
+  it('銀行で借りる：審査に通ると預金に入り、月末から返済が始まる。保存しても残る', () => {
+    const s = createGame(7, city, b);
+    const bank = city.pois.find((p) => p.kind === 'bank')!;
+    s.x = bank.x;
+    s.y = bank.y;
+    s.cash = 300000;
+    apply(s, city, { type: 'loan', id: bank.id, kind: 'start', amount: 200000, plan: 60000 }, b);
+    expect(s.eco.loans.length).toBe(0); // ランクEでは借りられない
+    s.eco.credit = 220;
+    s.eco.know.retail = 40;
+    apply(s, city, { type: 'loan', id: bank.id, kind: 'start', amount: 200000 }, b);
+    expect(s.eco.loans.length).toBe(0); // 計画が要る
+    apply(s, city, { type: 'loan', id: bank.id, kind: 'start', amount: 200000, plan: 60000 }, b);
+    expect(s.eco.loans.length).toBe(1);
+    expect(s.bank).toBe(200000);
+    expect(s.eco.plan).toBe(60000);
+    const t = fromSave(JSON.parse(JSON.stringify(toSave(s))), city, b);
+    expect(t.eco.loans).toEqual(s.eco.loans);
+    expect(t.eco.credit).toBe(220);
+  });
+  it('逮捕されると信用が300下がり、上限がつく', () => {
+    const s = createGame(7, city, b);
+    s.eco.credit = 800;
+    s.heat = 90;
+    s.catchT = 99;
+    s.x = city.home.x;
+    s.y = city.home.y;
+    step(s, city, { mx: 0, my: 0 }, b);
+    expect(s.eco.credit).toBe(b.credit.arrestCap);
+  });
+});

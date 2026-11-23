@@ -29,8 +29,35 @@ export const SaveStore = {
       /* 保存できない環境でも、遊びは止めない */
     }
   },
+  // 1日の終わりの保存：直近3回分を残す（.1 が新しい、.3 が古い）
+  snapshot(d: SaveData) {
+    try {
+      for (let i = 2; i >= 1; i--) {
+        const v = localStorage.getItem(`${KEY}.${i}`);
+        if (v) localStorage.setItem(`${KEY}.${i + 1}`, v);
+      }
+      localStorage.setItem(`${KEY}.1`, JSON.stringify(d));
+    } catch {
+      /* 保存できない環境でも、遊びは止めない */
+    }
+  },
+  // 残っている保存（新しい順）
+  snapshots(): SaveData[] {
+    const out: SaveData[] = [];
+    try {
+      for (let i = 1; i <= 3; i++) {
+        const v = localStorage.getItem(`${KEY}.${i}`);
+        const d = v ? migrate(JSON.parse(v)) : null;
+        if (d) out.push(d);
+      }
+    } catch {
+      /* 何もしない */
+    }
+    return out;
+  },
   clear() {
     try {
+      for (let i = 1; i <= 3; i++) localStorage.removeItem(`${KEY}.${i}`);
       localStorage.removeItem(KEY);
     } catch {
       /* 何もしない */

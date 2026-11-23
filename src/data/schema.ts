@@ -12,7 +12,10 @@ const prof = rec(['alarm', 'silent', 'heat', 'quiet', 'cam', 'min', 'max', 'days
 export const BalanceSchema = z.object({
   world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
   move: z.object({ walk: pos, bike: pos, car: pos, accel: pos, brake: pos, drag: pos, offroad: pos.max(1) }),
-  time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23) }),
+  time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23), daysPerMonth: pos.int(), monthsPerYear: pos.int() }),
+  credit: rec(['start', 'run', 'black', 'paid', 'late', 'red3', 'goodYear', 'taxPaid', 'arrest', 'arrestCap', 'bankruptCap', 'capMonths', 'planGood', 'planBad', 'restartCash']),
+  loan: rec(['rateD', 'rateC', 'rateB', 'rateA', 'startRatio', 'startKnow', 'months', 'bankMonths', 'bankPayShare', 'deferFee']),
+  tax: rec(['person', 'corp', 'delayMonths']),
   money: rec(['startCash', 'living', 'wageConbini', 'wageWarehouse', 'shiftHours', 'bike', 'car', 'crowbar', 'laptop', 'pawnRate', 'lockpick', 'drill', 'washRate', 'washCap']),
   biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),

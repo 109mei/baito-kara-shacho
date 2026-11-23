@@ -74,7 +74,7 @@ export function roomOf(kind: PoiKind, owned: boolean): Room | null {
         back: { x: 1.0, y: 1.2 },
         cams: [{ x: 9.2, y: 0.4, a: 2.54, sweep: 0.7, range: 7.8, speed: 0.6 }, { x: 10.4, y: 4.0, a: -0.1, sweep: 0.3, range: 6, speed: 0.5 }, { x: 0.4, y: 5.2, a: 0.35, sweep: 0.5, range: 13, speed: 0.6 }, { x: 14.3, y: 8.6, a: Math.PI, sweep: 0.6, range: 7, speed: 0.5, guard: true }],
         spots: [
-          { x: 7.0, y: 8.0, label: '窓口', acts: ['deposit', 'withdraw'] },
+          { x: 7.0, y: 8.0, label: '窓口', acts: ['deposit', 'withdraw', 'loan'] },
           { x: 10.2, y: 8.0, label: '銃を向けて脅す', h: 'threat' }, { x: 10.2, y: 8.0, label: '鍵を出させる', h: 'key' }, { x: 15.3, y: 8.6, label: '警備員に銃を向ける', h: 'guard' },
           { x: 1.7, y: 4.6, label: '扉', h: 'door', n: 0 }, { x: 9.8, y: 3.1, label: '金庫室の扉', h: 'door', n: 1 },
           { x: 8.2, y: 1.3, label: '監視カメラを止める', h: 'panel' }, { x: 4.2, y: 2.4, label: '机をさがす', h: 'desk' }, { x: 14.2, y: 3.6, label: '金庫', h: 'vault' },

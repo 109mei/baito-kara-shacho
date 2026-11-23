@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
+import { loanOffers, monthlyPay, rankOf } from '../core/eco';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
 import { MapView, PIN } from '../world/MapView';
@@ -131,6 +132,8 @@ function BigMap() {
   const send = useGame((s) => s.send);
   const way = useGame((s) => s.hud.way);
   const tools = useGame((s) => s.hud.tools);
+  const grade = useGame((s) => s.hud.grade);
+  const credit = useGame((s) => s.hud.credit);
   const prefs = useGame((s) => s.prefs);
   const setPrefs = useGame((s) => s.setPrefs);
   const start = useGame((s) => s.start);
@@ -211,6 +214,7 @@ function BigMap() {
           {LEGEND.map((k) => <span key={k}><i style={{ background: hex(PIN[k].c) }}>{PIN[k].t}</i>{LEGEND_NAME[k]}</span>)}
           <span><i className="me-dot" />自分</span>
         </div>
+        <div className="tools" data-credit><b>信用</b><span>ランク {grade}（{credit}点）</span></div>
         {tools.length > 0 && <div className="tools" data-tools><b>持ち物</b>{tools.map((t) => <span key={t}>{t}</span>)}</div>}
         <div className="bigmap-foot">
           {way && <button className="btn small" data-noway onClick={() => send({ type: 'noway' })}>道案内を消す</button>}
@@ -243,7 +247,7 @@ function Panel({ id }: { id: number }) {
           <button className="round" data-close onClick={() => set({ panel: null })}><Icon name="x" /></button>
         </div>
         {acts.map((a) => (
-          <button key={a.id} className={`act ${a.crime ? 'crime' : ''}`} data-act={a.id} disabled={!a.ok} onClick={() => { buzz(10); act(id, a.id, !!a.mini); if (['sleep', 'nap', 'work', 'chop'].includes(a.id)) set({ panel: null }); }}>
+          <button key={a.id} className={`act ${a.crime ? 'crime' : ''}`} data-act={a.id} disabled={!a.ok} onClick={() => { buzz(10); if (a.id === 'loan') { set({ panel: null, loan: id }); return; } act(id, a.id, !!a.mini); if (['sleep', 'nap', 'work', 'chop'].includes(a.id)) set({ panel: null }); }}>
             <span className="act-label">{a.label}</span>
             <span className="act-sub">{a.ok ? a.sub : a.why}</span>
           </button>
@@ -279,6 +283,90 @@ function Routes({ id }: { id: number }) {
             <span className="act-sub">{r.sub}</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// 融資の相談（銀行の窓口）：条件をすべて満たせば必ず通る。足りない条件は、印と文で見える
+function LoanSheet() {
+  useGame((s) => s.hud);
+  const set = useGame((s) => s.set);
+  const borrow = useGame((s) => s.borrow);
+  const [plan, setPlan] = useState(0);
+  const s = getCore();
+  const own = Math.max(0, s.cash) + Math.max(0, s.bank);
+  const offers = loanOffers(s.eco, own, false, b);
+  return (
+    <div className="veil" data-loan onClick={(e) => { if (e.target === e.currentTarget) set({ loan: null }); }}>
+      <div className="sheet">
+        <div className="sheet-head">
+          <span className="pin-dot" style={{ background: hex(PIN.bank.c) }}>{PIN.bank.t}</span>
+          <b>融資の相談</b>
+          <small>信用 {rankOf(s.eco.credit)}（{Math.round(s.eco.credit)}点）</small>
+          <button className="round" data-close onClick={() => set({ loan: null })}><Icon name="x" /></button>
+        </div>
+        {s.eco.loans.length > 0 && <p className="loan-now num">いまの借入：残り {yen(s.eco.loans.reduce((a, l) => a + l.left, 0))}／毎月 {yen(s.eco.loans.reduce((a, l) => a + l.pay, 0))}</p>}
+        {offers.map((o) => (
+          <div key={o.kind} className="offer" data-offer={o.kind} data-ok={o.ok || undefined}>
+            <b>{o.label}</b>
+            <ul>{o.conds.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'ng'}><i>{c.ok ? '○' : '×'}</i>{c.label}</li>)}</ul>
+            {o.ok && o.kind === 'start' && (
+              <div className="plan">
+                <span>計画（月の売上）</span>
+                {[30000, 60000, 120000].map((v) => <button key={v} className={`chip ${plan === v ? 'on' : ''}`} data-plan={v} onClick={() => setPlan(v)}>{yen(v)}</button>)}
+              </div>
+            )}
+            {o.ok && [o.max, Math.floor(o.max / 20000) * 10000].filter((v, i, arr) => v >= 10000 && arr.indexOf(v) === i).map((v) => (
+              <button key={v} className="act" data-borrow={v} disabled={o.kind === 'start' && plan === 0} onClick={() => borrow(o.kind, v, plan)}>
+                <span className="act-label">{yen(v)} を借りる</span>
+                <span className="act-sub">年 {Math.round(o.rate * 100)}%・{o.months}回・毎月 {yen(monthlyPay(v, o.rate, o.months))}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 月次レポート（月末の締め）：数字には、先月を比べる相手として添える
+function Report() {
+  const rec = useGame((s) => s.report)!;
+  const broke = useGame((s) => s.broke);
+  const set = useGame((s) => s.set);
+  const hist = getCore().eco.hist;
+  const prev = hist.length >= 2 ? hist[hist.length - 2] : null;
+  const y = Math.floor(rec.month / b.time.monthsPerYear) + 1;
+  const m = (rec.month % b.time.monthsPerYear) + 1;
+  const diff = (old: number | undefined) => (old === undefined ? '' : `先月 ${yen(old)}`);
+  const rows: [string, number, string, string][] = [
+    ['売上', rec.sales, diff(prev?.sales), ''],
+    ['原価・経費', -rec.cost, '', ''],
+    ['給料', -rec.wage, '', ''],
+    ['家賃と光熱費', -rec.rent, '', ''],
+    ['商売のもうけ', rec.profit, diff(prev?.profit), 'sum'],
+    ['返済', -rec.repay, '', ''],
+    ['生活費', -rec.living, '', ''],
+    ['税', -rec.tax, '', ''],
+    ['残ったお金', rec.money, diff(prev?.money), 'sum'],
+  ];
+  return (
+    <div className="veil center" data-report>
+      <div className="report">
+        <h2>{y}年{m}月の締め</h2>
+        {broke && <p className="broke" data-broke>倒産　アルバイトからやり直す</p>}
+        <table>
+          <tbody>
+            {rows.filter((r) => r[3] === 'sum' || r[1] !== 0).map(([name, v, note, cls]) => (
+              <tr key={name} className={cls}><th>{name}</th><td className={`num ${v < 0 ? 'neg' : ''}`}>{v < 0 ? `−${yen(-v)}` : yen(v)}</td><td className="cmp num">{note}</td></tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="credit num">信用 <b>{rankOf(rec.credit)}</b>（{Math.round(rec.credit)}点{rec.creditDiff ? `・${rec.creditDiff > 0 ? '+' : '−'}${Math.abs(Math.round(rec.creditDiff))}` : ''}）</p>
+        {rec.unpaid.map((u, i) => <p key={i} className="unpaid num" data-unpaid>払えなかった：{u.what} {yen(u.amount)}<br />来月末に払う。次も払えないと倒産</p>)}
+        {rec.notes.map((t) => <p key={t} className="note">{t}</p>)}
+        <button className="btn primary" data-ok onClick={() => set({ report: null, broke: false })}>つぎの月へ</button>
       </div>
     </div>
   );
@@ -331,6 +419,8 @@ function Game() {
   const panel = useGame((s) => s.panel);
   const mini = useGame((s) => s.mini);
   const routes = useGame((s) => s.routes);
+  const loan = useGame((s) => s.loan);
+  const report = useGame((s) => s.report);
   const hurt = useGame((s) => s.hurt);
   const bigMap = useGame((s) => s.bigMap);
   const busted = useGame((s) => s.busted);
@@ -431,7 +521,7 @@ function Game() {
       <header className="hud">
         <div className="hud-left">
         <div className="plate">
-          <span className="date num">{hud.day}日目 <b>{clockText(hud.hour)}</b>　{hud.rank}</span>
+          <span className="date num">{hud.date} <b>{clockText(hud.hour)}</b>　{hud.rank}</span>
           <span className="cash num" data-cash data-value={hud.cash}>{yen(hud.cash)}</span>
           <span className="subs num">
             {hud.dirty > 0 && <i className="dirty" data-dirty>汚 {yen(hud.dirty)}</i>}
@@ -442,6 +532,7 @@ function Game() {
           </span>
           {(hud.gun || hud.hp < 100) && <span className={`hp ${hud.hp < 35 ? 'low' : ''}`} data-hp={hud.hp}><Icon name="heart" size={15} /><span><i style={{ width: `${Math.min(100, hud.hp)}%` }} /></span></span>}
         </div>
+        {hud.short > 0 && <span className="need" data-need>月末の払いに {yen(hud.short)} 足りない</span>}
         {!hud.inside && <button className="goal" data-goal onClick={guide}><Icon name="flag" size={17} /><span>{hud.goal}</span></button>}
         </div>
         <div className="hud-right">
@@ -478,6 +569,8 @@ function Game() {
       {hud.inside && hud.alarm > 0 && <div className="alarm-edge" />}
       {hurt > 0 && <div className="hurt" key={hurt} />}
       {panel !== null && <Panel id={panel} />}
+      {loan !== null && <LoanSheet />}
+      {report && !busted && <Report />}
       {routes !== null && <Routes id={routes} />}
       {mini && <Mini />}
       {bigMap && <BigMap />}

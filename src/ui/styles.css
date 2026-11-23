@@ -177,3 +177,32 @@ button:disabled { cursor: default; }
 .title-btns .btn { min-height: 58px; font-size: 19px; border-radius: 18px; }
 
 @media (prefers-reduced-motion: reduce) { .title-map, .toast, .ctx, .sheet, .bigmap, .flash { animation: none; } .flash { display: none; } }
+
+/* ---- 経営：月末の払いが足りない知らせ、融資の相談、月次レポート */
+.need { pointer-events: none; padding: 5px 12px 6px; border-radius: 6px 14px 14px 14px; background: var(--bad); color: #fff; font-weight: 900; font-size: 17px; }
+.loan-now { margin: 0 2px 8px; font-size: 15px; font-weight: 800; color: var(--sub); }
+.offer { background: #fff; border-radius: 16px; padding: 12px 12px 10px; margin-bottom: 8px; box-shadow: 0 0 0 1px rgba(27, 35, 48, 0.09); display: flex; flex-direction: column; gap: 6px; }
+.offer > b { font-size: 17px; }
+.offer ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.offer li { display: flex; gap: 6px; font-size: 15px; font-weight: 700; line-height: 1.35; }
+.offer li i { font-style: normal; font-weight: 900; flex: none; width: 1.1em; }
+.offer li.ok i { color: var(--good); }
+.offer li.ng { color: var(--sub); }
+.offer li.ng i { color: var(--bad); }
+.plan { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 800; }
+.chip { padding: 5px 11px; border-radius: 99px; background: rgba(27, 35, 48, 0.08); font-weight: 800; font-size: 15px; }
+.chip.on { background: var(--ink); color: #fff; }
+.report { width: min(92%, 360px); max-height: 86%; overflow: auto; background: var(--bg); border-radius: 24px; padding: 20px 18px 16px; animation: up 0.4s var(--spring) both; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4); }
+.report h2 { margin: 0 0 10px; font-size: 24px; font-weight: 900; }
+.report table { width: 100%; border-collapse: collapse; }
+.report th { text-align: left; font-weight: 800; font-size: 16px; padding: 4px 0; }
+.report td { text-align: right; font-weight: 900; font-size: 17px; padding: 4px 0 4px 8px; white-space: nowrap; }
+.report td.neg { color: var(--sub); }
+.report td.cmp { font-size: 15px; font-weight: 700; color: var(--sub); }
+.report tr.sum th, .report tr.sum td { border-top: 2px solid var(--line); padding-top: 7px; font-size: 18px; }
+.report .credit { margin: 10px 0 4px; font-size: 16px; font-weight: 800; }
+.report .credit b { font-size: 22px; }
+.report .unpaid { margin: 6px 0; padding: 8px 10px; border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 2px var(--bad); color: var(--bad); font-size: 15px; font-weight: 800; line-height: 1.5; }
+.report .note { margin: 4px 0; font-size: 15px; font-weight: 700; color: var(--sub); }
+.report .broke { margin: 0 0 8px; padding: 6px 10px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 18px; font-weight: 900; text-align: center; }
+.report .btn { width: 100%; margin-top: 10px; }
