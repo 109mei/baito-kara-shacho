@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
 import { custK, newEco, PHASES, turnMonth } from '../src/core/eco';
-import { applyCount, apartFill, apartIncome, arriveRate, askOne, makeStaff, newFirm, newShop, openConds, rivalsReact, seen, serve } from '../src/core/shop';
+import { applyCount, apartFill, apartIncome, arriveRate, askOne, dayWorks, lineDay, makeStaff, newFirm, newShop, openConds, procCaps, rivalsReact, seen, serve } from '../src/core/shop';
 import { apply, createGame, fromSave, fuzz, poiActions, rank, toSave } from '../src/core/sim';
 import { balance as b } from '../src/data/schema';
 
@@ -248,6 +248,86 @@ describe('街の動き（景気・出来事・ほかの会社）', () => {
     rivalsReact(z, rng(), b);
     expect(rivalsReact(z, rng(), b)[0]).toContain('値段を合わせてきた');
     expect(arriveRate(z, 1, b)).toBeLessThan(cheap); // 値下げの効き目がなくなる
+  });
+});
+
+describe('製造型（工房）', () => {
+  const crew = (procs: number[]) => {
+    const firm = newFirm();
+    procs.forEach((pr, i) => firm.staff.push({ ...makeStaff(i + 1, rng(9), b), at: lot.id, proc: pr, skill: 100, exp: 1 }));
+    return firm;
+  };
+  it('1日に作れる数は、いちばん遅い工程の数。機械は、その工程を2倍にする', () => {
+    const z = newShop('works', lot.id, 0, 0, 0, b);
+    const firm = crew([0, 1, 2]);
+    expect(procCaps(z, firm, 1, b)).toEqual([75, 30, 85]); // 切る8分・組む20分・仕上げ7分（1日10時間）
+    const out = dayWorks(z, firm, 1000, 0, b);
+    expect(out.made).toBe(30); // 組む工程が足を引っぱる
+    z.mach[1] = true;
+    expect(procCaps(z, firm, 1, b)[1]).toBe(60);
+    expect(procCaps(z, crew([0, 1, 1, 2]), 1, b)[1]).toBe(120); // 人を足しても増える
+    expect(procCaps(z, crew([0, 0, 0]), 1, b)[1]).toBe(0); // 工程に人がいないと、何も作れない
+  });
+  it('材料がなければ作れない。技能が低いと不良が出て、材料を余分に使う', () => {
+    const z = newShop('works', lot.id, 0, 0, 0, b);
+    expect(dayWorks(z, crew([0, 1, 2]), 0, 0, b).made).toBe(0);
+    const low = newFirm();
+    [0, 1, 2].forEach((pr, i) => low.staff.push({ ...makeStaff(i + 1, rng(9), b), at: lot.id, proc: pr, skill: 20, exp: 1 }));
+    const out = dayWorks(z, low, 1000, 0, b);
+    expect(out.bad).toBeGreaterThan(0);
+    expect(out.used).toBe(out.made + out.bad);
+  });
+  it('街の中で：工房を開き、人が小物を作り、できた品が売り場と卸に売れる', () => {
+    const s = createGame(7, city, b);
+    s.cash = 3000000;
+    s.eco.credit = 250;
+    s.clock = 10 * 60;
+    go(s, lot, 'works');
+    expect(s.biz[0].type).toBe('works');
+    [0, 1, 2].forEach((pr, i) => s.firm.staff.push({ ...makeStaff(i + 1, rng(9), b), at: lot.id, proc: pr }));
+    go(s, kind('tool'), 'matsBulk');
+    expect(s.tr.mats).toBe(b.works.bulk);
+    go(s, lot, 'manage');
+    go(s, city.home, 'sleep');
+    expect(s.tr.stock.craftSmall).toBeGreaterThan(0);
+    expect(s.tr.mats).toBeLessThan(b.works.bulk);
+    s.tr.stock.craftSmall = 200;
+    go(s, kind('market'), 'sellGoods');
+    go(s, kind('market'), 'wholesale');
+    expect(s.tr.stock.craftSmall).toBe(0);
+    expect(s.tr.recv.some((r) => r.what === '卸の代金')).toBe(true);
+  });
+});
+
+describe('路線型（バス）', () => {
+  it('乗る人は、本数が多いほど増え、運賃が高いほど減る。遠い区間ほど少ない', () => {
+    const ln = { a: 0, b: 1, buses: 5, fare: 1, d: { riders: 0, sales: 0, cost: 0 } };
+    const base = lineDay(ln, 1, 1, 1000, b).riders;
+    expect(lineDay({ ...ln, buses: 8 }, 1, 1, 1000, b).riders).toBeGreaterThan(base);
+    expect(lineDay({ ...ln, fare: 1.3 }, 1, 1, 1000, b).riders).toBeLessThan(base);
+    expect(lineDay(ln, 1, 1, 6000, b).riders).toBeLessThan(base);
+    expect(lineDay(ln, 2, 1.5, 1000, b).riders).toBeGreaterThan(base);
+    expect(lineDay(ln, 1, 1, 1000, b).cost).toBe(5 * (b.staff.market + b.bus.fuel));
+  });
+  it('街の中で：講習を受けて5台で始めると、毎日 売上と経費が出る。停まる場所を変えられる', () => {
+    const s = createGame(7, city, b);
+    s.cash = 5000000;
+    s.clock = 10 * 60;
+    go(s, kind('office'), 'busStart');
+    expect(s.firm.line).toBeNull(); // 講習が要る
+    go(s, kind('office'), 'busLecture');
+    s.clock = Math.floor(s.clock / 1440 + 1) * 1440 + 10 * 60;
+    go(s, kind('office'), 'busStart');
+    expect(s.firm.line!.buses).toBe(b.bus.min);
+    const a = s.firm.line!.a;
+    apply(s, city, { type: 'line', act: 'a' }, b);
+    expect(s.firm.line!.a).not.toBe(a);
+    expect(s.firm.line!.a).not.toBe(s.firm.line!.b);
+    apply(s, city, { type: 'line', act: 'fareDown' }, b);
+    expect(s.firm.line!.fare).toBe(0.9);
+    go(s, city.home, 'sleep');
+    expect(s.firm.line!.d.riders).toBeGreaterThan(0);
+    expect(s.eco.m.sales).toBe(s.firm.line!.d.sales);
   });
 });
 

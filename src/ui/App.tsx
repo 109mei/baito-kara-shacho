@@ -4,7 +4,7 @@ import { hasKey, POI_NAME, poiActions, poiTitle, routesOf, type Act } from '../c
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
-import { apartFill, apartIncome, seen as seenStat, type Staff } from '../core/shop';
+import { apartFill, apartIncome, PROC_NAMES, seen as seenStat, type Staff } from '../core/shop';
 import { left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { rankIndex } from '../core/eco';
 import { mateColor, net } from '../net/room';
@@ -327,6 +327,8 @@ function Hub() {
   const wayTo = useGame((s) => s.wayTo);
   const staff = useGame((s) => s.staff);
   const bid = useGame((s) => s.bid);
+  const line = useGame((s) => s.line);
+  const kindName = (t: string) => (t === 'stall' ? '屋台' : t === 'works' ? '工房' : '店');
   const s = getCore();
   const tr = s.tr;
   const J = b.jobs;
@@ -380,8 +382,8 @@ function Hub() {
           const boss = crew.find((q) => q.id === z.boss);
           return (
             <div key={z.poi} className="gig" data-shop={z.type}>
-              <span><b>{z.type === 'stall' ? '屋台' : '店'}</b>　認知 {Math.round(z.aware)}・評判 {Math.round(z.repute)}・値段 {Math.round(z.price * 100)}%
-                <small>きのう 客{z.d.cust}人{z.d.lost ? `（${z.d.lost}人は帰った）` : ''}・今月の売上 {yen(z.m.sales)}・人 {crew.length}人{boss ? `（店長 ${boss.name}）` : crew.length && z.seen < Math.floor(s.clock / 1440) ? '・きょうは見ていない' : ''}</small></span>
+              <span><b>{kindName(z.type)}</b>　{z.type === 'works' ? `材料 ${tr.mats}個・できた品 ${tr.stock.craftSmall ?? 0}個` : `認知 ${Math.round(z.aware)}・評判 ${Math.round(z.repute)}・値段 ${Math.round(z.price * 100)}%${z.rivals ? `・競合 ${z.rivals}軒` : ''}`}
+                <small>{z.type === 'works' ? `きのう ${z.d.cust}個 作った${z.d.lost ? `（不良 ${z.d.lost}個）` : ''}・今月 ${z.m.cust}個` : `きのう 客${z.d.cust}人${z.d.lost ? `（${z.d.lost}人は帰った）` : ''}・今月の売上 ${yen(z.m.sales)}`}・人 {crew.length}人{boss ? `（店長 ${boss.name}）` : crew.length && z.seen < Math.floor(s.clock / 1440) ? '・きょうは見ていない' : ''}</small></span>
               <button className="chip on" onClick={() => wayTo(z.poi)}>道案内</button>
             </div>
           );
@@ -389,11 +391,12 @@ function Hub() {
         {s.firm.staff.length > 0 && <h3>人</h3>}
         {s.firm.staff.map((q) => (
           <div key={q.id} className="gig col" data-staff={q.id}>
-            <span><b>{q.name}</b>　日給 {yen(q.wage)}・{q.at < 0 ? 'まだ店を決めていない' : s.biz.find((z) => z.poi === q.at)?.type === 'stall' ? '屋台' : '店'}{s.biz.some((z) => z.boss === q.id) ? '（店長）' : ''}
+            <span><b>{q.name}</b>　日給 {yen(q.wage)}・{q.at < 0 ? 'まだ店を決めていない' : kindName(s.biz.find((z) => z.poi === q.at)?.type ?? '')}{s.biz.find((z) => z.poi === q.at)?.type === 'works' ? `・${PROC_NAMES[q.proc]}` : ''}{s.biz.some((z) => z.boss === q.id) ? '（店長）' : ''}
               <Stats p={q} />
               <small>{q.mood >= b.staff.quit ? '「話があります」と言っている' : q.mood >= b.staff.sign ? '遅刻が増えた' : q.months === 0 ? '働き始めたばかり' : '変わりなし'}{q.see[0] >= 3 ? `・まとめる力 ${q.lead}` : ''}</small></span>
             <div className="btns">
               <button className="chip" data-s="assign" onClick={() => staff(q.id, 'assign')}>店を変える</button>
+              {s.biz.find((z) => z.poi === q.at)?.type === 'works' && <button className="chip" data-s="proc" onClick={() => staff(q.id, 'proc')}>工程を変える</button>}
               <button className="chip" data-s="boss" disabled={q.at < 0} onClick={() => staff(q.id, 'boss')}>{s.biz.some((z) => z.boss === q.id) ? '店長をやめる' : '店長に任せる'}</button>
               <button className="chip" data-s="raise" onClick={() => staff(q.id, 'raise')}>昇給</button>
               <button className="chip" data-s="talk" onClick={() => staff(q.id, 'talk')}>面談（1時間）</button>
@@ -413,6 +416,20 @@ function Hub() {
             </div>
           </div>
         ))}
+        {s.firm.line && <h3>バスの路線</h3>}
+        {s.firm.line && (
+          <div className="gig col" data-line>
+            <span><b>{POI_NAME[city.pois[s.firm.line.a].kind]}</b> ⇄ <b>{POI_NAME[city.pois[s.firm.line.b].kind]}</b>　{s.firm.line.buses}台・運賃 相場の{Math.round(s.firm.line.fare * 100)}%
+              <small>きのう {s.firm.line.d.riders}人・売上 {yen(s.firm.line.d.sales)}・経費 {yen(s.firm.line.d.cost)}。停留所の近くの店は、人通りが1割増える</small></span>
+            <div className="btns">
+              <button className="chip" data-l="a" onClick={() => line('a')}>片方の停留所を変える</button>
+              <button className="chip" data-l="b" onClick={() => line('b')}>もう片方を変える</button>
+              <button className="chip" data-l="fareDown" onClick={() => line('fareDown')}>運賃を下げる</button>
+              <button className="chip" data-l="fareUp" onClick={() => line('fareUp')}>運賃を上げる</button>
+              <button className="chip" data-l="add" onClick={() => line('add')}>バスを1台 足す（{yen(b.bus.price)}）</button>
+            </div>
+          </div>
+        )}
         {s.firm.aparts.length > 0 && <h3>物件</h3>}
         {s.firm.aparts.map((a) => (
           <div key={a.poi} className="gig" data-apart>

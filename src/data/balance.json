@@ -423,5 +423,32 @@
     "relLoss": 20,
     "maxDeals": 2,
     "rate": 0.6
+  },
+  "works": {
+    "setup": 400000,
+    "rent": 2500,
+    "cut": 8,
+    "build": 20,
+    "finish": 7,
+    "machine": 150000,
+    "defect": 0.05,
+    "standard": 50,
+    "bulk": 100,
+    "bulkOff": 0.9,
+    "wholesale": 0.5
+  },
+  "bus": {
+    "lecture": 50000,
+    "lectureHours": 16,
+    "price": 600000,
+    "min": 5,
+    "fare": 220,
+    "flow": 900,
+    "share": 0.25,
+    "perBus": 0.05,
+    "fareK": 0.5,
+    "fuel": 3000,
+    "near": 450,
+    "boost": 1.1
   }
 }

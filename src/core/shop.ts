@@ -4,7 +4,8 @@ import type { Balance } from '../data/schema';
 export interface Tally { cust: number; lost: number; sales: number; cost: number }
 const zero = (): Tally => ({ cust: 0, lost: 0, sales: 0, cost: 0 });
 export interface Shop {
-  poi: number; type: 'stall' | 'shop';
+  poi: number; type: 'stall' | 'shop' | 'works'; // 屋台・店（来店型）、工房（製造型）
+  mach: boolean[]; // 工房の機械（切る・組む・仕上げ）
   price: number; // 値段（相場を 1 として 0.7〜1.5）
   aware: number; // 認知（0〜100）。開店のときは 5。広告と口コミで上がる
   repute: number; // 評判（0〜100）。50 から始まる
@@ -22,6 +23,7 @@ export interface Staff {
   mood: number; // 不満（0〜100）
   exp: number; // 慣れ（0〜1）。40時間で 1
   at: number; // 働いている店（場所の番号。-1＝まだ決めていない）
+  proc: number; // 工房での工程（0 切る・1 組む・2 仕上げ）
   see: [number, number, number]; // 見えている度合い（技能・接客・まじめさ：0＝見えない、1＝±10、2＝±3、3＝正しく見える）
   months: number; quiet: number; // 働いた月、昇給も面談もない月
 }
@@ -32,9 +34,10 @@ export interface Firm {
   asked: Record<number, number>; // 面接で使った質問の数（人ごと。3つまで）
   aparts: Apart[];
   permits: string[]; // 持っている資格・許可
+  line: Line | null; // バスの路線（路線型）
   lawyer: boolean; // 弁護士を頼んである（次に捕まったとき、出られるまでが短くなる。1回で切れる）
 }
-export const newFirm = (): Firm => ({ staff: [], pool: [], nextStaff: 1, post: null, asked: {}, aparts: [], permits: [], lawyer: false });
+export const newFirm = (): Firm => ({ staff: [], pool: [], nextStaff: 1, post: null, asked: {}, aparts: [], permits: [], line: null, lawyer: false });
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`;
 
@@ -69,27 +72,68 @@ export function serve(z: Shop, hours: number, hands: Hand[], traffic: number, pe
 export function dayShop(z: Shop, firm: Firm, traffic: number, day: number, bal: Balance, costK = 1): Tally {
   const S = bal.shop;
   const crew = firm.staff.filter((p) => p.at === z.poi);
-  if (!crew.length) return (z.d = zero());
-  const boss = crew.find((p) => p.id === z.boss);
-  const perf = boss ? (60 + boss.lead * 0.6) / 100 : z.seen >= day ? 1 : S.unseen;
+  if (!crew.length || z.type === 'works') return (z.d = zero());
+  const perf = perfOf(z, firm, day, bal);
   const capHour = z.type === 'stall' ? S.stallCap : S.shopCap;
   const hands = crew.map((p) => ({ cap: capHour * (0.5 + 0.5 * p.exp) * (0.6 + p.skill / 250), service: p.service }));
   for (const p of crew) p.exp = Math.min(1, p.exp + (S.hours / bal.staff.expHours) * p.grow);
   return (z.d = serve(z, S.hours, hands, traffic, perf, bal, costK));
 }
+// 店の回り具合：店長に任せた店は 60 + まとめる力 × 0.6（%）。任せていない店は、その日に見ていないと落ちる
+export function perfOf(z: Shop, firm: Firm, day: number, bal: Balance): number {
+  const boss = firm.staff.find((p) => p.id === z.boss && p.at === z.poi);
+  return boss ? (60 + boss.lead * 0.6) / 100 : z.seen >= day ? 1 : bal.shop.unseen;
+}
+// ---- 製造型：1日に作れる数 ＝ いちばん遅い工程の数。機械は、その工程の時間を半分にする
+export const PROC_NAMES = ['切る', '組む', '仕上げ'];
+export function procCaps(z: Shop, firm: Firm, perf: number, bal: Balance): number[] {
+  const mins = [bal.works.cut, bal.works.build, bal.works.finish];
+  return mins.map((m, i) => Math.floor(firm.staff.filter((p) => p.at === z.poi && p.proc === i).reduce((a, p) => a + ((bal.shop.hours * 60) / m) * (0.5 + 0.5 * p.exp) * (0.6 + p.skill / 250), 0) * (z.mach[i] ? 2 : 1) * perf));
+}
+// 工房の1日：材料を使って小物を作る。不良の割合 ＝ 5% +（基準 − 品質）× 1%。不良は、材料をもう1つ使ってやり直す
+export function dayWorks(z: Shop, firm: Firm, mats: number, day: number, bal: Balance): { made: number; used: number; bad: number } {
+  const crew = firm.staff.filter((p) => p.at === z.poi);
+  if (!crew.length) return { made: 0, used: 0, bad: 0 };
+  const caps = procCaps(z, firm, perfOf(z, firm, day, bal), bal);
+  const q = 0.4 * 50 + (0.4 * crew.reduce((a, p) => a + p.skill, 0)) / crew.length + 0.2 * (z.mach.filter(Boolean).length / 3) * 100;
+  const rate = Math.max(0, bal.works.defect + (bal.works.standard - q) * 0.01);
+  let made = Math.min(...caps);
+  let bad = Math.round(made * rate);
+  if (made + bad > mats) {
+    made = Math.floor(mats / (1 + rate));
+    bad = Math.min(mats - made, Math.round(made * rate));
+  }
+  for (const p of crew) p.exp = Math.min(1, p.exp + (bal.shop.hours / bal.staff.expHours) * p.grow);
+  z.d = { cust: made, lost: bad, sales: 0, cost: 0 };
+  z.m.cust += made;
+  z.m.lost += bad;
+  return { made, used: made + bad, bad };
+}
+// ---- 路線型：乗る人 ＝ 区間を移動する人 × 乗り換える割合。本数が多いと待つ時間が減り、運賃が高いと減る
+export interface Line { a: number; b: number; buses: number; fare: number; d: { riders: number; sales: number; cost: number } }
+export function lineDay(line: Line, ta: number, tb: number, dist: number, bal: Balance): { riders: number; sales: number; cost: number } {
+  const B = bal.bus;
+  const flow = (B.flow * ta * tb) / (1 + dist / 3000); // 区間を移動する人
+  const share = clamp(B.share + B.perBus * (line.buses - B.min) - (line.fare - 1) * B.fareK, 0.03, 0.6); // 乗り換える割合
+  const riders = Math.round(flow * share);
+  return (line.d = { riders, sales: Math.round(riders * B.fare * line.fare), cost: line.buses * (bal.staff.market + B.fuel) });
+}
+
 // 開くための条件（審査に運はない）
 export interface Cond { label: string; ok: boolean }
-export function openConds(type: 'stall' | 'shop', traffic: number, rankIdx: number, cash: number, firm: Firm, bal: Balance): { conds: Cond[]; setup: number; deposit: number; rent: number } {
+export function openConds(type: Shop['type'], traffic: number, rankIdx: number, cash: number, firm: Firm, bal: Balance): { conds: Cond[]; setup: number; deposit: number; rent: number } {
   const S = bal.shop;
   if (type === 'stall') {
     return { setup: bal.biz.stall, deposit: 0, rent: 0, conds: [{ label: '食品衛生の責任者の講習を受けている（窓口で1日）', ok: firm.permits.includes('food') }, { label: `道具と屋台の代金 ${yen(bal.biz.stall)}（表のお金）`, ok: cash >= bal.biz.stall }] };
   }
-  const rent = Math.round((S.shopRent * traffic) / 100) * 100;
+  const works = type === 'works';
+  const rent = works ? bal.works.rent : Math.round((S.shopRent * traffic) / 100) * 100;
+  const setup = works ? bal.works.setup : bal.biz.shop;
   const months = rankIdx >= 1 ? S.depositMonths : S.depositMonthsE; // 入居の審査：ランク D 以上。E でも保証金を増やせば通る
   const deposit = rent * bal.time.daysPerMonth * months;
-  return { setup: bal.biz.shop, deposit, rent, conds: [{ label: `保証金 家賃の${months}か月分 ${yen(deposit)}${rankIdx >= 1 ? '' : '（信用が D になると6か月分）'}`, ok: cash >= deposit + bal.biz.shop }, { label: `内装の代金 ${yen(bal.biz.shop)}（表のお金）`, ok: cash >= deposit + bal.biz.shop }] };
+  return { setup, deposit, rent, conds: [{ label: `保証金 家賃の${months}か月分 ${yen(deposit)}${rankIdx >= 1 ? '' : '（信用が D になると6か月分）'}`, ok: cash >= deposit + setup }, { label: `${works ? '作業場の準備' : '内装の代金'} ${yen(setup)}（表のお金）`, ok: cash >= deposit + setup }] };
 }
-export const newShop = (type: 'stall' | 'shop', poi: number, rent: number, deposit: number, day: number, bal: Balance): Shop => ({ poi, type, price: 1, aware: bal.shop.awareStart, repute: 50, rent, deposit, boss: 0, seen: day, rivals: 0, rivalPrice: 1, cut: 0, hot: 0, d: zero(), m: zero() });
+export const newShop = (type: Shop['type'], poi: number, rent: number, deposit: number, day: number, bal: Balance): Shop => ({ poi, type, price: 1, aware: bal.shop.awareStart, repute: 50, rent, deposit, mach: [false, false, false], boss: 0, seen: day, rivals: 0, rivalPrice: 1, cut: 0, hot: 0, d: zero(), m: zero() });
 
 // 競合の反応（月末）：値下げには2か月で値段を合わせ、よく売れる店の近くには2か月で店を出し、評判で負けると撤退する
 export function rivalsReact(z: Shop, rnd: () => number, bal: Balance): string[] {
@@ -121,7 +165,7 @@ export function makeStaff(id: number, rnd: () => number, bal: Balance): Staff {
   const service = r(20, 90);
   const bio = skill > 65 ? '同じ仕事を5年' : skill > 40 ? '似た仕事を1年' : '未経験';
   const ask = Math.round((bal.staff.market * (0.85 + skill / 300 + rnd() * 0.15)) / 100) * 100;
-  return { id, name: `${NAMES[Math.floor(rnd() * NAMES.length)]}さん`, bio, skill, service, honest: r(15, 95), lead: r(10, 95), grow: Math.round((0.5 + 1.5 * rnd()) * 10) / 10, ask, wage: ask, mood: 0, exp: 0, at: -1, see: [0, 0, 0], months: 0, quiet: 0 };
+  return { id, name: `${NAMES[Math.floor(rnd() * NAMES.length)]}さん`, bio, skill, service, honest: r(15, 95), lead: r(10, 95), grow: Math.round((0.5 + 1.5 * rnd()) * 10) / 10, ask, wage: ask, mood: 0, exp: 0, at: -1, proc: 0, see: [0, 0, 0], months: 0, quiet: 0 };
 }
 // 月の応募の数 ＝ 仕事を探している人 × 手段の届く割合 ×（出した日給 ÷ 相場）の2乗。相場より低いと、さらに5分の1
 export const applyCount = (post: NonNullable<Firm['post']>, bal: Balance, hireK = 1) => {

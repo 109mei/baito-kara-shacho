@@ -54,6 +54,7 @@ interface Store {
   gig: (id: number, take: boolean) => void;
   staff: (id: number, act: Extract<Cmd, { type: 'staff' }>['act'], k?: 0 | 1 | 2) => void;
   bid: (id: number, act: Extract<Cmd, { type: 'bid' }>['act']) => void;
+  line: (act: Extract<Cmd, { type: 'line' }>['act']) => void;
   wayTo: (poi: number) => void;
   borrow: (kind: 'start' | 'bank', amount: number, plan: number) => void;
   exportSave: () => string; // セーブを文字にして書き出す
@@ -264,6 +265,7 @@ export const useGame = create<Store>((set, get) => {
     gig: (id, take) => get().send({ type: 'gig', id, take }),
     staff: (id, act, k) => get().send({ type: 'staff', id, act, k }),
     bid: (id, act) => get().send({ type: 'bid', id, act }),
+    line: (act) => get().send({ type: 'line', act }),
     wayTo: (poi) => {
       const p = city.pois[poi];
       get().send({ type: 'way', x: p.x, y: p.y });

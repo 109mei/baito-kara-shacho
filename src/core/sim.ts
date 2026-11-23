@@ -3,7 +3,7 @@
 import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
-import { apartFill, apartIncome, apartPrice, arriveRate, askOne, dayShop, hire, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
+import { apartFill, apartIncome, apartPrice, arriveRate, askOne, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
 import { endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
@@ -75,8 +75,9 @@ export type Cmd =
   | { type: 'loot'; i: number }
   | { type: 'fire' }
   | { type: 'gig'; id: number; take: boolean } // 届いた話を受ける・断る
+  | { type: 'line'; act: 'a' | 'b' | 'fareUp' | 'fareDown' | 'add' } // バスの路線：停まる場所・運賃・台数
   | { type: 'bid'; id: number; act: 'low' | 'mid' | 'high' | 'call' } // 契約の話：見積を変える・通う
-  | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'talk' | 'assign' | 'boss' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
+  | { type: 'staff'; id: number; act: 'ask' | 'hire' | 'fire' | 'raise' | 'talk' | 'assign' | 'boss' | 'proc' | 'wageUp' | 'wageDown'; k?: 0 | 1 | 2 } // 人のこと
   | { type: 'loan'; id: number; kind: 'start' | 'bank'; amount: number; plan?: number }
   | { type: 'shoot'; x: number; y: number } // 決まった点へ撃つ（ほかの人と遊ぶとき）
   | { type: 'hurt'; amount: number; x: number; y: number }; // ほかの人に撃たれた
@@ -217,6 +218,7 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
       const have = (tr.stock.craftSmall ?? 0) + (tr.stock.craftOrder ?? 0);
       return [
         { id: 'sellGoods', label: '作った品を納める', sub: have ? `${n}個 売れる（今月の枠の残り ${left(tr, 'craftSmall')}）` : '品を持っていない', ok: n > 0, why: have ? '今月の枠がいっぱい' : '品を持っていない' },
+        { id: 'wholesale', label: '余った品を卸に売る', sub: have > n ? `${have - n}個・半値・代金は翌月末` : '余っていない', ok: have > n && rankIndex(s.eco.credit) >= 1, why: have > n ? '卸との取引は、信用のランク D から' : '余っていない' },
         { id: 'pitchCraft', label: '品を売り込む', sub: '2時間・今月の枠 +10', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
         { id: 'pitchHandy', label: '便利屋のチラシを置く', sub: '2時間・届く話 +3', ok: h >= 8 && h < 20, why: '8時〜20時だけ' },
       ];
@@ -234,6 +236,8 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
         { id: 'postOff', label: '求人をやめる', sub: post ? `日給 ${yen(post.wage)} で出している` : '出していない', ok: !!post, why: '出していない' },
         { id: 'lawyer', label: '弁護士を頼んでおく', sub: s.firm.lawyer ? '頼んである' : `${yen(bal.law.lawyer)}（表のお金）／捕まったとき、出られるまでが7割の長さ`, ok: !s.firm.lawyer && s.cash + Math.max(0, s.bank) >= bal.law.lawyer, why: s.firm.lawyer ? '頼んである' : 'お金が足りない' },
         { id: 'hide', label: 'もうけを少なく申告する', sub: `いま ${Math.round(s.eco.hide * 100)}%を隠す／税務調査の見込み ${Math.round(auditChance(s.eco, bal) * 100)}%・見つかると隠した税の${bal.law.penalty}倍`, ok: true, crime: true },
+        { id: 'busLecture', label: '運行管理者の講習を受ける', sub: s.firm.permits.includes('transit') ? '受けてある' : `${yen(bal.bus.lecture)}・${bal.bus.lectureHours}時間／バスの路線に要る`, ok: !s.firm.permits.includes('transit') && open && s.cash + Math.max(0, s.bank) >= bal.bus.lecture, why: s.firm.permits.includes('transit') ? '受けてある' : open ? 'お金が足りない' : '9時〜17時だけ' },
+        { id: 'busStart', label: 'バスの路線を始める', sub: s.firm.line ? '走らせている' : `バス${bal.bus.min}台 ${yen(bal.bus.price * bal.bus.min)}（営業所ごとに${bal.bus.min}台から）`, ok: !s.firm.line && s.firm.permits.includes('transit') && s.cash + Math.max(0, s.bank) >= bal.bus.price * bal.bus.min, why: s.firm.line ? '走らせている' : !s.firm.permits.includes('transit') ? '運行管理者の講習が要る' : 'お金が足りない' },
         { id: 'insure', label: s.eco.insured ? '保険をやめる' : '保険に入る', sub: `月 ${yen(bal.town.insure)}／台風や工事で減った売上の半分が戻る`, ok: true },
         { id: 'advice', label: '聞きに行く', sub: '1時間', ok: open, why: '9時〜17時だけ' },
       ];
@@ -262,6 +266,7 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
     case 'tool':
       return [
         { id: 'mats', label: '材料を10個買う', sub: `${yen(matCost(s, bal))}／手作りの品（いま ${tr.mats}個）`, ok: s.cash + s.dirty >= matCost(s, bal), why: 'お金が足りない' },
+        { id: 'matsBulk', label: `材料を${bal.works.bulk}個 仕入れる`, sub: rankIndex(s.eco.credit) >= 1 ? `${yen(matCost(s, bal) * (bal.works.bulk / 10) * bal.works.bulkOff)}／卸の値段（1割安い）` : '卸との取引は、信用のランク D から', ok: rankIndex(s.eco.credit) >= 1 && s.cash + Math.max(0, s.bank) >= matCost(s, bal) * (bal.works.bulk / 10) * bal.works.bulkOff, why: rankIndex(s.eco.credit) >= 1 ? 'お金が足りない' : '信用のランク D から' },
         { id: 'power', label: '電動の道具を買う', sub: tr.power ? '持っている' : `${yen(m.power)}／作るのが速くなる・品質が上がる`, ok: !tr.power && s.cash + s.dirty >= m.power, why: tr.power ? '持っている' : 'お金が足りない' },
         { id: 'washer', label: '洗浄の道具を買う', sub: tr.washer ? '持っている' : `${yen(m.washer)}／便利屋の高い仕事`, ok: !tr.washer && s.cash + s.dirty >= m.washer, why: tr.washer ? '持っている' : 'お金が足りない' },
         { id: 'crowbar', label: 'バールを買う', sub: s.crowbar ? '持っている' : `${yen(m.crowbar)}／こじ開ける（音が出る）`, ok: !s.crowbar && s.cash + s.dirty >= m.crowbar, why: s.crowbar ? '持っている' : 'お金が足りない' },
@@ -311,9 +316,18 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
       const z = s.biz.find((x) => x.poi === p.id);
       const S = bal.shop;
       const money = s.cash + Math.max(0, s.bank);
+      if (z && z.type === 'works') {
+        const caps = procCaps(z, s.firm, perfOf(z, s.firm, dayOf(s), bal), bal);
+        const crewN = s.firm.staff.filter((q) => q.at === p.id).length;
+        return [
+          { id: 'manage', label: '工房を見る（1時間）', sub: !crewN ? '人がいない' : z.boss ? '工場長に任せてある' : z.seen >= dayOf(s) ? 'きょうは見た' : 'きょうは、まだ見ていない', ok: crewN > 0 && !z.boss && z.seen < dayOf(s), why: !crewN ? '人がいない' : z.boss ? '任せてある' : 'きょうは見た' },
+          ...PROC_NAMES.map((n, i) => ({ id: `mach${i}`, label: `「${n}」の機械を買う`, sub: z.mach[i] ? '入れてある' : `${yen(bal.works.machine)}／1日 ${caps[i]}個（いちばん少ない工程が、作れる数になる）`, ok: !z.mach[i] && money >= bal.works.machine, why: z.mach[i] ? '入れてある' : 'お金が足りない' })),
+          { id: 'closeShop', label: '工房をたたむ', sub: `保証金 ${yen(z.deposit)} が戻る`, ok: true },
+        ];
+      }
       if (z) {
         const crew = s.firm.staff.filter((q) => q.at === p.id).length;
-        const [lo, hi] = fuzz(arriveRate(z, p.traffic * custK(s.eco), bal), s.eco.know[z.type === 'stall' ? 'food' : 'retail'] ?? 0);
+        const [lo, hi] = fuzz(arriveRate(z, trafficAt(s, city, p, bal), bal), s.eco.know[z.type === 'stall' ? 'food' : 'retail'] ?? 0);
         return [
           { id: 'tend', label: '店に立つ（4時間）', sub: `客は1時間に ${lo.toFixed(1)}〜${hi.toFixed(1)}人ほど`, ok: h >= 7 && h < 21, why: '7時〜21時だけ' },
           { id: 'manage', label: '店を見る（1時間）', sub: !crew ? '人がいない' : z.boss ? '店長に任せてある' : z.seen >= dayOf(s) ? 'きょうは見た' : 'きょうは、まだ見ていない', ok: crew > 0 && !z.boss && z.seen < dayOf(s), why: !crew ? '人がいない' : z.boss ? '店長に任せてある' : 'きょうは見た' },
@@ -326,10 +340,12 @@ function baseActions(s: GameState, city: City, p: Poi, bal: Balance): Act[] {
       }
       const st = openConds('stall', p.traffic, rankIndex(s.eco.credit), money, s.firm, bal);
       const sh = openConds('shop', p.traffic, rankIndex(s.eco.credit), money, s.firm, bal);
+      const wk = openConds('works', p.traffic, rankIndex(s.eco.credit), money, s.firm, bal);
       const ng = (c: typeof st) => c.conds.find((x) => !x.ok)?.label;
       return [
         { id: 'stall', label: '屋台を出す', sub: ng(st) ?? `${yen(st.setup)}／家賃なし`, ok: !ng(st), why: ng(st) },
         { id: 'shop', label: '店を借りて開く', sub: ng(sh) ?? `保証金 ${yen(sh.deposit)}＋内装 ${yen(sh.setup)}／家賃 1日 ${yen(sh.rent)}`, ok: !ng(sh), why: ng(sh) },
+        { id: 'works', label: '工房を開く', sub: ng(wk) ?? `保証金 ${yen(wk.deposit)}＋準備 ${yen(wk.setup)}／人が小物を作る`, ok: !ng(wk), why: ng(wk) },
       ];
     }
     case 'atm':
@@ -485,7 +501,20 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   let sales = 0;
   let cost = 0;
   for (const z of s.biz) {
-    const t = dayShop(z, s.firm, city.pois[z.poi].traffic * custK(s.eco), s.eco.days, bal, s.eco.fx.includes('matUp') ? 1.15 : 1);
+    if (z.type === 'works') {
+      const w = dayWorks(z, s.firm, s.tr.mats, s.eco.days, bal);
+      s.tr.mats -= w.used;
+      s.tr.stock.craftSmall = (s.tr.stock.craftSmall ?? 0) + w.made;
+      continue;
+    }
+    const t = dayShop(z, s.firm, trafficAt(s, city, city.pois[z.poi], bal), s.eco.days, bal, s.eco.fx.includes('matUp') ? 1.15 : 1);
+    sales += t.sales;
+    cost += t.cost;
+  }
+  if (s.firm.line) {
+    const ln = s.firm.line;
+    const [pa, pb] = [city.pois[ln.a], city.pois[ln.b]];
+    const t = lineDay(ln, pa.traffic, pb.traffic, Math.hypot(pa.x - pb.x, pa.y - pb.y), bal);
     sales += t.sales;
     cost += t.cost;
   }
@@ -532,7 +561,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
   s.eco.days += 1;
   if (s.eco.days % bal.time.daysPerMonth === 0) {
     const ended = monthOf(s.eco, bal) - 1;
-    const active = s.biz.length > 0 || s.firm.aparts.length > 0 || s.tr.deals.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
+    const active = s.biz.length > 0 || !!s.firm.line || s.firm.aparts.length > 0 || s.tr.deals.length > 0 || s.tr.titles.length > 0 || Object.values(s.tr.used).some((n) => n > 0);
     // 物件の家賃収入（資産型）。年末に、建物が少し傷む
     let estate = 0;
     for (const a of s.firm.aparts) estate += apartIncome(a, city.pois[a.poi].traffic, bal);
@@ -578,7 +607,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
         out.rec.notes.push(`保険で ${yen(back)} 戻った（入っていなければ 0）`);
       } else if (back > 0) out.rec.notes.push(`${EVENTS[hit[0]].name}で売上が減った。保険に入っていれば ${yen(back)} 戻っていた`);
     }
-    for (const z of s.biz) out.rec.notes.push(...rivalsReact(z, mr, bal));
+    for (const z of s.biz) if (z.type !== 'works') out.rec.notes.push(...rivalsReact(z, mr, bal));
     out.rec.notes.push(...turnMonth(s.eco, ended + 1, mr, bal));
     const ms = monthStaff(s.firm, s.biz, mr, bal);
     out.rec.notes.push(...ms.notes);
@@ -597,6 +626,7 @@ function settle(s: GameState, city: City, bal: Balance, ev: Ev[]) {
       s.biz = [];
       s.firm.staff = [];
       s.firm.aparts = [];
+      s.firm.line = null;
       s.firm.post = null;
       const mine = s.cars.find((c) => c.kind === 'mine');
       if (mine && s.ride === mine.id) s.ride = null;
@@ -619,6 +649,22 @@ const monthRng = (seed: number, k: number) => {
   let x = (Math.imul(seed, 2654435761) + Math.imul(k + 1, 40503) + 12345) >>> 0;
   return () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296;
 };
+// バスの停まる場所の候補：売り場・窓口・銀行
+const STOPS = new WeakMap<City, number[]>();
+export function stopsOf(city: City): number[] {
+  let c = STOPS.get(city);
+  if (!c) {
+    c = city.pois.filter((p) => ['market', 'office', 'bank'].includes(p.kind)).map((p) => p.id);
+    STOPS.set(city, c);
+  }
+  return c;
+}
+// その場所の人通り：景気と出来事、自分のバスの停留所の近くなら増える
+export function trafficAt(s: GameState, city: City, p: Poi, bal: Balance): number {
+  const ln = s.firm.line;
+  const near = !!ln && [ln.a, ln.b].some((id) => Math.hypot(city.pois[id].x - p.x, city.pois[id].y - p.y) < bal.bus.near);
+  return p.traffic * custK(s.eco) * (near ? bal.bus.boost : 1);
+}
 // 契約の相手（会社）：倉庫・自転車屋・中古車屋・売り場・宝石店
 const FIRMS = new WeakMap<City, number[]>();
 export function firmsOf(city: City): number[] {
@@ -752,6 +798,22 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     if (g) g.taken = cmd.take;
     return ev;
   }
+  if (cmd.type === 'line') {
+    const ln = s.firm.line;
+    if (!ln) return ev;
+    const stops = stopsOf(city);
+    if (cmd.act === 'a' || cmd.act === 'b') {
+      let i = (stops.indexOf(ln[cmd.act]) + 1) % stops.length;
+      if (stops[i] === (cmd.act === 'a' ? ln.b : ln.a)) i = (i + 1) % stops.length;
+      ln[cmd.act] = stops[i];
+    } else if (cmd.act === 'add') {
+      if (payClean(s, bal.bus.price)) {
+        ln.buses += 1;
+        s.eco.m.cost += bal.bus.price;
+      }
+    } else ln.fare = Math.max(0.6, Math.min(1.6, Math.round((ln.fare + (cmd.act === 'fareUp' ? 0.1 : -0.1)) * 10) / 10));
+    return ev;
+  }
   if (cmd.type === 'bid') {
     const b2 = s.tr.bids.find((x) => x.id === cmd.id);
     if (!b2) return ev;
@@ -795,6 +857,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const spots = [-1, ...s.biz.map((z) => z.poi)];
       q.at = spots[(spots.indexOf(q.at) + 1) % spots.length];
       for (const z of s.biz) if (z.boss === q.id && z.poi !== q.at) z.boss = 0;
+    } else if (q && cmd.act === 'proc') {
+      q.proc = (q.proc + 1) % 3;
     } else if (q && cmd.act === 'boss') {
       const z = s.biz.find((x) => x.poi === q.at);
       if (z) z.boss = z.boss === q.id ? 0 : q.id;
@@ -1311,12 +1375,13 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       toast('罰金を払った');
       break;
     case 'stall':
+    case 'works':
     case 'shop': {
       const c = openConds(cmd.act, p.traffic, rankIndex(s.eco.credit), s.cash + Math.max(0, s.bank), s.firm, bal);
       if (c.conds.every((x) => x.ok) && payClean(s, c.setup + c.deposit)) {
         s.biz.push(newShop(cmd.act, p.id, c.rent, c.deposit, dayOf(s), bal));
         s.eco.m.cost += c.setup; // 道具・内装は経費。保証金は、たたむと戻る
-        toast(cmd.act === 'stall' ? '屋台を出した。店に立つか、人を雇う' : '店を開いた。店に立つか、人を雇う', 'good');
+        toast(cmd.act === 'stall' ? '屋台を出した。店に立つか、人を雇う' : cmd.act === 'works' ? '工房を開いた。人を雇って、工程を決める。材料も要る' : '店を開いた。店に立つか、人を雇う', 'good');
         ev.push({ type: 'sfx', name: 'ok' });
       }
       break;
@@ -1325,7 +1390,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const z = s.biz.find((x) => x.poi === p.id);
       if (!z) break;
       const field = z.type === 'stall' ? 'food' : 'retail';
-      const t = serve(z, 4, [{ cap: bal.shop.selfCap, service: 40 + (s.eco.know[field] ?? 0) / 2 }], p.traffic * custK(s.eco), 1, bal, s.eco.fx.includes('matUp') ? 1.15 : 1);
+      const t = serve(z, 4, [{ cap: bal.shop.selfCap, service: 40 + (s.eco.know[field] ?? 0) / 2 }], trafficAt(s, city, p, bal), 1, bal, s.eco.fx.includes('matUp') ? 1.15 : 1);
       labor(s, city, 240, field, bal, ev);
       z.seen = dayOf(s);
       const washed = s.eco.mix ? Math.min(s.dirty, Math.round(t.sales * bal.shop.mix)) : 0;
@@ -1337,6 +1402,50 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       s.eco.m.cost += t.cost;
       toast(`客 ${t.cust}人${t.lost ? `（${t.lost}人は待てずに帰った）` : ''}　+${yen(t.sales - t.cost)}`, t.cust ? 'good' : '');
       if (t.cust) ev.push({ type: 'sfx', name: 'coin' });
+      break;
+    }
+    case 'mach0':
+    case 'mach1':
+    case 'mach2': {
+      const z = s.biz.find((x) => x.poi === p.id);
+      if (z && payClean(s, bal.works.machine)) {
+        z.mach[Number(cmd.act.slice(4))] = true;
+        s.eco.m.cost += bal.works.machine;
+        toast('機械を入れた', 'good');
+      }
+      break;
+    }
+    case 'matsBulk':
+      if (rankIndex(s.eco.credit) >= 1 && payClean(s, Math.round(matCost(s, bal) * (bal.works.bulk / 10) * bal.works.bulkOff))) {
+        s.tr.mats += bal.works.bulk;
+        s.eco.m.cost += Math.round(matCost(s, bal) * (bal.works.bulk / 10) * bal.works.bulkOff);
+        toast(`材料を${bal.works.bulk}個 仕入れた`);
+      }
+      break;
+    case 'wholesale': {
+      // 枠を超えて余った小物を、卸に半値でまとめて売る（代金は翌月末）
+      const n = Math.max(0, (s.tr.stock.craftSmall ?? 0) - left(s.tr, 'craftSmall'));
+      if (n <= 0) break;
+      s.tr.stock.craftSmall -= n;
+      s.tr.recv.push({ amount: Math.round(n * bal.jobs.craftSmall.price * bal.works.wholesale), due: monthOf(s.eco, bal) + 1, what: '卸の代金' });
+      toast(`卸に ${n}個 売った（代金は翌月末）`, 'good');
+      break;
+    }
+    case 'busLecture':
+      if (payClean(s, bal.bus.lecture)) {
+        labor(s, city, bal.bus.lectureHours * 60, '', bal, ev);
+        s.firm.permits.push('transit');
+        toast('運行管理者になった', 'good');
+      }
+      break;
+    case 'busStart': {
+      const stops = stopsOf(city);
+      if (!s.firm.line && s.firm.permits.includes('transit') && stops.length >= 2 && payClean(s, bal.bus.price * bal.bus.min)) {
+        s.firm.line = { a: stops[0], b: stops[1], buses: bal.bus.min, fare: 1, d: { riders: 0, sales: 0, cost: 0 } };
+        s.eco.m.cost += bal.bus.price * bal.bus.min;
+        toast('バスの路線を始めた。停まる場所は「仕事と商売」で決める', 'good');
+        ev.push({ type: 'sfx', name: 'ok' });
+      }
       break;
     }
     case 'manage': {
