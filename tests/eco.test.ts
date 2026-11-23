@@ -37,7 +37,7 @@ describe('お金の決まり', () => {
     const c = months(e, 1, { hasBiz: true, wages: 5000, rent: 5000 });
     expect(c.rec.profit).toBe(20000);
     expect(c.rec.creditDiff).toBe(b.credit.paid + b.credit.run + b.credit.black);
-    expect(e.m).toEqual({ sales: 0, cost: 0 });
+    expect(e.m).toEqual({ sales: 0, cost: 0, job: 0 });
     expect(e.hist.length).toBe(2);
   });
   it('払えない物は来月へ回る（3%上乗せ・信用が下がる）。次の月末にも払えないと倒産', () => {
@@ -312,5 +312,34 @@ describe('法人（会社の口座・役員報酬・会社の倒産）', () => {
     e.days += dpm;
     out = closeMonth(e, { cash: out.cash, bank: out.bank, living: 0, wages: 0, rent: 0, hasBiz: false }, b);
     expect(out.cash).toBeLessThan(300000);
+  });
+});
+
+describe('独立（アルバイトをせずに、3か月 お金が減らない）', () => {
+  it('アルバイトの給料がなく、商売の売上があって、お金が減らない月が3か月続くと、独立になる', () => {
+    const e = newEco(b);
+    let out = { cash: 100000, bank: 0 };
+    const month = (sales: number, job: number, living = 5000) => {
+      e.days += dpm;
+      e.m = { sales, cost: 0, job };
+      const o = closeMonth(e, { cash: out.cash + sales + job, bank: out.bank, living, wages: 0, rent: 0, hasBiz: true }, b);
+      out = o;
+      return o.rec;
+    };
+    month(20000, 5000);
+    month(20000, 0);
+    month(20000, 0);
+    expect(e.indep).toBe(-1);
+    month(20000, 4400); // アルバイトをした月は、数え直し
+    expect(e.free).toBe(0);
+    month(20000, 0);
+    month(3000, 0); // お金が減った月も、数え直し
+    expect(e.free).toBe(0);
+    month(20000, 0);
+    month(20000, 0);
+    expect(e.indep).toBe(-1);
+    const rec = month(20000, 0);
+    expect(e.indep).toBe(rec.month);
+    expect(rec.notes.some((t) => t.includes('独立できた'))).toBe(true);
   });
 });

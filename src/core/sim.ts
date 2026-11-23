@@ -4,7 +4,7 @@ import type { Balance } from '../data/schema';
 import { blocked, camSees, roomOf, type Room } from './rooms';
 import { addCredit, auditChance, billsOf, capCredit, closeMonth, custK, EVENTS, learn, phaseOf, turnMonth, monthOf, newEco, rankIndex, rankOf, takeLoan, type Eco, type MonthRec } from './eco';
 import { apartFill, apartIncome, apartPrice, arriveRate, askOne, burgleChance, secOf, dayShop, dayWorks, hire, lineDay, PROC_NAMES, procCaps, perfOf, monthStaff, newFirm, newShop, openConds, recruit, repairCost, rivalsReact, serve, wagesOf, type Firm, type Shop } from './shop';
-import { DEAL_NAME, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
+import { DEAL_NAME, devHours, endMonth, fameOf, firstUnits, left, newTr, offerBids, pitch, PRO_KINDS, quality, record, settleDeals, startMonth, workMins, type Tr } from './trade';
 import { edgeArterial, findPath, GANGS, nearestNode, neighbors, nodeXY, roadAt, solid, turfOf, type City, type Poi, type PoiKind } from './city';
 
 export const STEP = 1 / 30;
@@ -469,10 +469,10 @@ function homeActs(s: GameState, bal: Balance): Act[] {
     { id: 'rest', label: '2時間 休む', sub: `疲れ ${Math.round(s.eco.fatigue)}`, ok: s.eco.fatigue > 0, why: '疲れていない' },
   ];
   if (!tr.proj) {
-    for (const id of ['softSmall', 'softMid']) out.push({ id: id === 'softSmall' ? 'devSmall' : 'devMid', label: `${J[id].name}を作り始める`, sub: s.laptop ? `${J[id].hours}時間・1本 ${yen(J[id].price)}・見込み ${firstUnits(J[id], fameOf(tr, 'soft'), false)}本` : 'ノートPCが要る', ok: s.laptop, why: 'ノートPCが要る。道具屋で買える' });
+    for (const id of ['softSmall', 'softMid']) out.push({ id: id === 'softSmall' ? 'devSmall' : 'devMid', label: `${J[id].name}を作り始める`, sub: s.laptop ? `${devHours(J[id], bal)}時間・1本 ${yen(J[id].price)}・見込み ${firstUnits(J[id], fameOf(tr, 'soft'), false, bal.time.quotaScale)}本` : 'ノートPCが要る', ok: s.laptop, why: 'ノートPCが要る。道具屋で買える' });
   } else {
     const job = J[tr.proj.job];
-    out.push({ id: 'dev', label: '4時間 作る', sub: `${job.name}　${Math.floor(tr.proj.hours)} / ${job.hours}時間`, ok: true });
+    out.push({ id: 'dev', label: '4時間 作る', sub: `${job.name}　${Math.floor(tr.proj.hours)} / ${devHours(job, bal)}時間`, ok: true });
     out.push({ id: 'devOut', label: '絵と音を外に頼む', sub: tr.proj.out ? '頼んである' : `${yen(m.devOut)}／作る時間が4分の3・本数が1.3倍`, ok: !tr.proj.out && s.cash + s.dirty >= m.devOut, why: tr.proj.out ? '頼んである' : 'お金が足りない' });
   }
   return out;
@@ -813,6 +813,12 @@ function labor(s: GameState, city: City, mins: number, field: string, bal: Balan
     e.fatigue = 60;
     ev.push({ type: 'toast', text: '疲れて倒れた。1日 寝こんだ', tone: 'bad' });
   } else if (e.fatigue >= bal.self.warn && before < bal.self.warn) ev.push({ type: 'toast', text: '疲れている。休まないと倒れる', tone: 'bad' });
+}
+// 時間だけを進める（シミュレーターで、移動にかかる時間を入れるのに使う）
+export function passTime(s: GameState, city: City, mins: number, bal: Balance): Ev[] {
+  const ev: Ev[] = [];
+  skip(s, city, mins, bal, ev);
+  return ev;
 }
 // 材料10個の値段（原料の値上がりの月は3割高い）
 const matCost = (s: GameState, bal: Balance) => Math.round(bal.money.matPrice * 10 * (s.eco.fx.includes('matUp') ? 1.3 : 1));
@@ -1267,6 +1273,7 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       labor(s, city, m.shiftHours * 60, p.kind === 'conbini' ? 'retail' : 'logi', bal, ev); // 働くと、疲れがたまり、その業種の知識がつく
       s.cash += wage;
       s.earned += wage;
+      s.eco.m.job = (s.eco.m.job ?? 0) + wage;
       toast(`+${yen(wage)}`, 'good');
       ev.push({ type: 'sfx', name: 'coin' });
       break;
@@ -1336,8 +1343,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
     case 'pitchHandy': {
       const trade = cmd.act === 'pitchCraft' ? 'craft' : 'handy';
       labor(s, city, 120, trade, bal, ev);
-      pitch(s.tr, trade, monthOf(s.eco, bal), clientsOf(city), monthRng(s.seed, 1000 + s.tr.nextGig), bal);
-      toast(trade === 'craft' ? '売り込んだ。今月の枠が増えた' : 'チラシを置いた。話が届く', 'good');
+      const got = pitch(s.tr, trade, monthOf(s.eco, bal), clientsOf(city), monthRng(s.seed, 1000 + s.tr.nextGig + (s.tr.pitch[trade] ?? 0)), bal);
+      toast(trade === 'craft' ? `売り込んだ。今月の枠が ${got}個 増えた` : got ? `チラシを置いた。話が ${got}件 届いた` : 'チラシを置いた。まだ返事がない（もう1回で届きそう）', got ? 'good' : '');
       break;
     }
     case 'gig': {
@@ -1381,8 +1388,8 @@ export function apply(s: GameState, city: City, cmd: Cmd, bal: Balance): Ev[] {
       const know = s.eco.know.soft ?? 0;
       labor(s, city, 240 * slow, 'soft', bal, ev);
       pj.hours += (4 * (good ? 1 + bal.self.handGood / 100 : 1) * (know < 30 ? 0.8 : 1) * (s.eco.fatigue > 80 ? 0.77 : s.eco.fatigue > 60 ? 0.87 : 1)) / (pj.out ? 0.75 : 1);
-      if (pj.hours >= job.hours) {
-        const first = firstUnits(job, fameOf(s.tr, 'soft'), pj.out);
+      if (pj.hours >= devHours(job, bal)) {
+        const first = firstUnits(job, fameOf(s.tr, 'soft'), pj.out, bal.time.quotaScale);
         s.tr.titles.push({ job: pj.job, month: monthOf(s.eco, bal), first });
         s.tr.proj = null;
         toast(`${job.name}を発売した。今月の見込み ${first}本（入金は翌月末）`, 'good');

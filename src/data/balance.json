@@ -19,7 +19,8 @@
     "startHour": 8,
     "daysPerMonth": 3,
     "monthsPerYear": 12,
-    "quotaScale": 0.3
+    "quotaScale": 0.3,
+    "softFame": 20
   },
   "money": {
     "startCash": 30000,
@@ -239,7 +240,7 @@
       "perFame": 0.5,
       "perPitch": 0,
       "high": true,
-      "cap": 60,
+      "cap": 30,
       "tool": "",
       "decay": 0,
       "hours": 0
@@ -293,7 +294,7 @@
       "perFame": 0.5,
       "perPitch": 0,
       "high": true,
-      "cap": 30,
+      "cap": 15,
       "tool": "washer",
       "decay": 0,
       "hours": 0
@@ -332,7 +333,7 @@
       "cap": 0,
       "tool": "",
       "decay": 0.6,
-      "hours": 400
+      "hours": 300
     }
   },
   "self": {

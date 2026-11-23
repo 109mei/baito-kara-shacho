@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "test": "vitest run",
-    "sim": "vitest run tests/sim.test.ts --reporter=verbose",
+    "sim": "SIM=1 vitest run tests/sim.test.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

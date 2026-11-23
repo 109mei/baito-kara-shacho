@@ -22,6 +22,7 @@ export interface Tr {
   jobs: number; // これまでにこなした便利屋の仕事の数（契約の「実績」）
   bids: Bid[]; deals: Deal[]; nextBid: number;
   rel: Record<number, number>; // 相手（場所）ごとの関係（0〜100）
+  carry?: Record<string, number>; // 枠の端数（仕事ごと）。月が短くて枠が小さいので、端数を次へ持ち越して、ならすと式どおりの数になるようにする
   pro: Record<string, number>; // 許認可の要る仕事（建設・運送・警備）を、やり終えた月の数（入札の「実績」）
 }
 export const newTr = (): Tr => ({ fame: {}, quota: {}, used: {}, mats: 0, stock: {}, gigs: [], nextGig: 1, pitch: {}, power: false, washer: false, proj: null, titles: [], recv: [], q: { sum: 0, n: 0 }, broken: 0, jobs: 0, bids: [], deals: [], nextBid: 1, rel: {}, pro: {} });
@@ -37,6 +38,16 @@ export function baseQuota(tr: Tr, job: Job, scale = 1): number {
   if (job.high) return Math.min(job.cap, job.slots + (f - job.fame) * job.perFame) * scale; // 高い仕事：知名度が届いてから
   return (job.slots + f * job.perFame + p * job.perPitch) * scale;
 }
+// 枠を整数で取り出す（端数は持ち越す）
+function takeWhole(tr: Tr, id: string, add: number): number {
+  const c = (tr.carry ??= {});
+  const v = (c[id] ?? 0.5) + add;
+  const n = Math.floor(v + 1e-9);
+  c[id] = v - n;
+  return n;
+}
+// 作品を作るのにかかる時間（月の短さに合わせる）
+export const devHours = (job: Job, bal: Balance) => Math.round(job.hours * bal.time.quotaScale);
 export const left = (tr: Tr, id: string) => Math.max(0, Math.floor((tr.quota[id] ?? 0) - (tr.used[id] ?? 0)));
 
 // 月の初め：枠を決める（±10% ゆらぐ。ゆらいだあとの数が見える）。客先から届く話を作る
@@ -48,7 +59,7 @@ export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => 
   for (const [id, job] of Object.entries(bal.jobs)) {
     if (job.kind === 'title') continue;
     const base = baseQuota(tr, job, bal.time.quotaScale);
-    tr.quota[id] = (base > 0 ? Math.max(1, Math.round(base * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1))) : 0) + (k[id] ?? 0); // k＝景気と出来事の倍率
+    tr.quota[id] = (base > 0 ? takeWhole(tr, id, base * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1)) : 0) + (k[id] ?? 0); // k＝景気と出来事の倍率
     if (job.kind !== 'visit' || !clients.length) continue;
     // 客先へ行く仕事は、1件ずつ話として届く
     const have = tr.gigs.filter((g) => g.job === id).length;
@@ -57,14 +68,17 @@ export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => 
   tr.pitch = {};
 }
 // 売り込み：その月の枠が増える
-export function pitch(tr: Tr, trade: string, month: number, clients: number[], rnd: () => number, bal: Balance) {
+export function pitch(tr: Tr, trade: string, month: number, clients: number[], rnd: () => number, bal: Balance): number {
+  let got = 0;
   tr.pitch[trade] = (tr.pitch[trade] ?? 0) + 1;
   for (const [id, job] of Object.entries(bal.jobs)) {
     if (job.trade !== trade || job.high || job.kind === 'title' || fameOf(tr, trade) < job.fame) continue;
-    const add = Math.max(1, Math.round(job.perPitch * bal.time.quotaScale));
+    const add = takeWhole(tr, id, job.perPitch * bal.time.quotaScale);
+    got += add;
     tr.quota[id] = (tr.quota[id] ?? 0) + add;
     if (job.kind === 'visit' && clients.length) for (let k = 0; k < add; k++) tr.gigs.push({ id: tr.nextGig++, job: id, poi: clients[Math.floor(rnd() * clients.length)], due: month, taken: false });
   }
+  return got;
 }
 // 作業にかかる分：慣れ（知識が30に満たない業種は遅い）、道具、疲れで変わる
 export function workMins(job: Job, know: number, tr: Tr, fatigue: number): number {
@@ -82,7 +96,7 @@ export function record(tr: Tr, id: string, n: number, q: number) {
 }
 
 // 作品（個人開発）：発売した月の本数 ＝ 基本 + 知名度 × 係数（知名度は40まで効く）。翌月からは決まった割合で減る
-export const firstUnits = (job: Job, fame: number, out: boolean) => Math.round((job.slots + job.perFame * Math.min(40, fame)) * (out ? 1.3 : 1));
+export const firstUnits = (job: Job, fame: number, out: boolean, scale = 1) => Math.round((job.slots + job.perFame * Math.min(40, fame)) * (out ? 1.3 : 1) * scale);
 export const unitsAt = (job: Job, t: Title, month: number) => Math.round(t.first * Math.pow(job.decay, month - t.month));
 
 export interface MonthEnd { income: number; notes: string[]; sold: number }
@@ -117,7 +131,7 @@ export function endMonth(tr: Tr, month: number, bal: Balance): MonthEnd {
       pts += n * job.famePts;
     }
     const div = trade === 'craft' ? 10 : trade === 'handy' ? 3 : 1;
-    let up = trade === 'soft' ? sold / 40 : pts / div;
+    let up = (trade === 'soft' ? sold / bal.time.softFame : pts / div) / bal.time.quotaScale; // 月が短くて数が少ないぶん、1つあたりの知名度を大きくする（月あたりの伸びは仕様書と同じ）
     if (trade === 'soft') any = sold > 0;
     const before = fameOf(tr, trade);
     if (any && trade !== 'soft' && tr.q.n > 0) {

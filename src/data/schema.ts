@@ -15,7 +15,7 @@ const job = z.object({ trade: z.string(), name: z.string(), kind: z.enum(['make'
 export const BalanceSchema = z.object({
   world: z.object({ size: pos.min(2000).max(20000), arterialHalf: pos, minorHalf: pos, riverHalf: pos }),
   move: z.object({ walk: pos, bike: pos, car: pos, accel: pos, brake: pos, drag: pos, offroad: pos.max(1) }),
-  time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23), daysPerMonth: pos.int(), monthsPerYear: pos.int(), quotaScale: pos.max(1) }),
+  time: z.object({ minutesPerSecond: pos, startHour: n.min(0).max(23), daysPerMonth: pos.int(), monthsPerYear: pos.int(), quotaScale: pos.max(1), softFame: pos }),
   credit: rec(['start', 'run', 'black', 'paid', 'late', 'red3', 'goodYear', 'taxPaid', 'arrest', 'arrestCap', 'bankruptCap', 'capMonths', 'planGood', 'planBad', 'restartCash', 'bankrupt']),
   corp: rec(['fee', 'capital', 'salary', 'step', 'unit']),
   pro: rec(['buildValue', 'buildCrew', 'buildMonths', 'buildFund', 'buildSkill', 'haulValue', 'haulCrew', 'haulMonths', 'trucks', 'truck', 'haulSkill', 'guardValue', 'guardCrew', 'guardMonths', 'guardFee', 'guardHours', 'big', 'bigJobs', 'bigRank']),

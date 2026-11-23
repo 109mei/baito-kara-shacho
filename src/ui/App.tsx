@@ -5,7 +5,7 @@ import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
 import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
 import { apartFill, apartIncome, PROC_NAMES, seen as seenStat, type Staff } from '../core/shop';
-import { crewUsed, DEAL_NAME, left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
+import { crewUsed, DEAL_NAME, devHours, left, SCORE_NAMES, scoreOf, scoreParts, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { rankIndex } from '../core/eco';
 import { mateColor, net } from '../net/room';
 import { city, getCore, input, poiOf, useGame } from '../store/useGame';
@@ -445,7 +445,7 @@ function Hub() {
         <p className="line num">材料 <b>{tr.mats}</b>個　できた品 <b>{(tr.stock.craftSmall ?? 0) + (tr.stock.craftOrder ?? 0)}</b>個</p>
         <p className="line num">今月の枠　小物 あと<b>{left(tr, 'craftSmall')}</b>（{tr.quota.craftSmall ?? 0}）　注文品 あと<b>{left(tr, 'craftOrder')}</b>（{tr.quota.craftOrder ?? 0}）</p>
         <h3>個人開発</h3>
-        {tr.proj ? <p className="line num">{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {J[tr.proj.job].hours}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}</p> : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
+        {tr.proj ? <p className="line num">{J[tr.proj.job].name}　<b>{Math.floor(tr.proj.hours)}</b> / {devHours(J[tr.proj.job], b)}時間{tr.proj.out ? '（絵と音は外に頼んだ）' : ''}</p> : <p className="hint">自宅の机とPCで作り始める（ノートPCが要る）</p>}
         {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month)}</b>本</p>)}
         {fame.length > 0 && <><h3>知名度</h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
         {tr.recv.length > 0 && <><h3>入金の予定</h3>{tr.recv.map((r, i) => <p key={i} className="line num">{r.what}　<b>{yen(r.amount)}</b>（月末）</p>)}</>}
@@ -532,6 +532,7 @@ function Report() {
     ['家賃と光熱費', -rec.rent, '', ''],
     ['自分への給料', -(rec.salary ?? 0), '', ''],
     ['商売のもうけ', rec.profit, diff(prev?.profit), 'sum'],
+    ['アルバイトの給料', rec.job ?? 0, '', ''],
     ['返済', -rec.repay, '', ''],
     ['生活費', -rec.living, '', ''],
     ['税', -rec.tax, '', ''],

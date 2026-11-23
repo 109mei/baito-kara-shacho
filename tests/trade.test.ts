@@ -32,7 +32,7 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
     expect(baseQuota(tr, J.craftSmall)).toBe(40 + 15 + 10);
     expect(baseQuota(tr, J.craftOrder)).toBe(15);
     tr.fame.craft = 100;
-    expect(baseQuota(tr, J.craftOrder)).toBe(50);
+    expect(baseQuota(tr, J.craftOrder)).toBe(J.craftOrder.cap); // 上限（時間に合わせて、仕様書の半分の 30）
     tr.fame.handy = 30;
     expect(baseQuota(tr, J.handyWash)).toBe(0); // 道具がない
     tr.washer = true;
@@ -79,7 +79,7 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
     const ev = sleepToMonthEnd(s);
     const rec = ev.find((e) => e.type === 'month');
     expect(rec && rec.type === 'month' && [rec.rec.sales, rec.rec.cost]).toEqual([6400, 2000]);
-    expect(s.tr.fame.craft).toBe(0.8); // 8個 ÷ 10
+    expect(s.tr.fame.craft).toBe(2.7); // 8個 ÷ 10 ÷ 月の短さの倍率（0.3）
     expect(s.eco.credit).toBe(b.credit.start + b.credit.paid + b.credit.run + b.credit.black);
   });
   it('枠より多く作っても、今月は売れない', () => {
@@ -127,14 +127,16 @@ describe('商売の共通の形（仕事の表・知名度・届く話）', () =
       act(s, 'home', 'dev');
     }
     expect(s.tr.proj).toBeNull();
-    expect(s.tr.titles[0].first).toBe(firstUnits(J.softSmall, 0, false));
+    const first = firstUnits(J.softSmall, 0, false, b.time.quotaScale); // 仕様書の 30本 に、月の短さの倍率を掛けた 9本
+    expect(first).toBe(9);
+    expect(s.tr.titles[0].first).toBe(first);
     const bank = s.bank;
     sleepToMonthEnd(s);
     expect(s.bank).toBe(bank); // 入金は翌月末
-    expect(s.tr.recv[0].amount).toBe(30 * 350);
+    expect(s.tr.recv[0].amount).toBe(first * 350);
     sleepToMonthEnd(s);
-    expect(s.bank).toBe(bank + 30 * 350);
-    expect(s.tr.recv[0].amount).toBe(15 * 350); // 前の月の半分
+    expect(s.bank).toBe(bank + first * 350);
+    expect(s.tr.recv[0].amount).toBe(Math.round(first / 2) * 350); // 前の月の半分
     expect(s.tr.fame.soft).toBeGreaterThan(0);
     const t = fromSave(JSON.parse(JSON.stringify(toSave(s))), city, b);
     expect(t.tr).toEqual(s.tr);

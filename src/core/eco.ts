@@ -12,6 +12,7 @@ export interface MonthRec {
   sales: number; cost: number; wage: number; rent: number; // 商売の売上と、原価・経費、給料、家賃
   profit: number; // 商売のもうけ
   repay: number; living: number; tax: number; // 返済、生活費、納めた税
+  job?: number; // アルバイトの給料
   money: number; // 締めたあとの現金＋預金
   corp?: number; salary?: number; // 法人：締めたあとの会社の口座と、自分へ移した給料
   credit: number; creditDiff: number;
@@ -27,7 +28,8 @@ export interface Eco {
   tax: { amount: number; due: number; corp?: boolean }[]; // 決まった税と、納める月
   corp: Corp | null; // 法人にしたあとの会社（null＝個人事業）
   yearProfit: number; // 今年のもうけ（税の計算に使う）
-  m: { sales: number; cost: number }; // 今月の売上と、原価・経費
+  m: { sales: number; cost: number; job?: number }; // 今月の売上と、原価・経費、アルバイトの給料
+  free: number; indep: number; // アルバイトをせずに、お金が減らなかった月の続き。独立できた月（まだなら -1）
   red: number; // 赤字が続いた月の数
   closings: number; // 決算の回数
   plan: number; // 計画した月の売上（0＝計画なし）
@@ -45,7 +47,7 @@ export interface Eco {
 }
 
 export const newEco = (bal: Balance): Eco => ({
-  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], corp: null, yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hide: 0, mix: false, mixed: 0, yearSales: 0, hist: [],
+  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], corp: null, yearProfit: 0, m: { sales: 0, cost: 0, job: 0 }, free: 0, indep: -1, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hide: 0, mix: false, mixed: 0, yearSales: 0, hist: [],
 });
 
 // 景気：好況 → 後退 → 不況 → 回復 の順に回る。客と注文、人の集まりやすさ、物件の値段が変わる
@@ -312,10 +314,19 @@ export function closeMonth(e: Eco, w: CloseIn, bal: Balance): CloseOut {
   } else if (mInYear > bal.time.monthsPerYear - bal.tax.delayMonths && e.yearProfit > 0) {
     notes.push(`税の見込み ${yen(e.yearProfit * (co ? bal.tax.corp : bal.tax.person))}（年末の決算のあと）`);
   }
-  const rec: MonthRec = { month, sales: e.m.sales, cost: e.m.cost, wage: w.wages, rent: w.rent, profit, repay, living: w.living, tax, money: cash + Math.max(0, bank), credit: e.credit, creditDiff: e.credit - before, unpaid, notes, ...(co ? { corp: corpBankrupt ? 0 : cb, salary } : {}) };
+  // 独立（仕様書 13章）：アルバイトをせず、商売の売上があって、月末のお金が先月より減らない月が 3か月 続く
+  const total = cash + Math.max(0, bank) + (co && !corpBankrupt ? Math.max(0, cb) : 0);
+  const last = e.hist[e.hist.length - 1];
+  const kept = !!last && total >= last.money + (last.corp ?? 0);
+  e.free = !(e.m.job ?? 0) && e.m.sales > 0 && kept && !bankrupt ? (e.free ?? 0) + 1 : 0;
+  if (e.free >= 3 && (e.indep ?? -1) < 0) {
+    e.indep = month;
+    notes.push('独立できた：アルバイトをせずに、3か月 続けてお金が減らなかった');
+  }
+  const rec: MonthRec = { month, job: e.m.job ?? 0, sales: e.m.sales, cost: e.m.cost, wage: w.wages, rent: w.rent, profit, repay, living: w.living, tax, money: cash + Math.max(0, bank), credit: e.credit, creditDiff: e.credit - before, unpaid, notes, ...(co ? { corp: corpBankrupt ? 0 : cb, salary } : {}) };
   e.hist.push(rec);
   if (e.hist.length > 36) e.hist.shift();
-  e.m = { sales: 0, cost: 0 };
+  e.m = { sales: 0, cost: 0, job: 0 };
   if (e.corp) e.corp.bank = cb;
   return { cash, bank, rec, bankrupt, corpBankrupt, caught };
 }
