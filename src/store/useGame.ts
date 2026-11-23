@@ -1,7 +1,7 @@
 // ルール本体と画面の橋渡し。状態の持ち主はルール本体で、ここは写しを配るだけ。
 // ルール本体は 1/30 秒の決まった刻みで進める。画面の数字は 1 秒に 10 回だけ更新する。
 import { create } from 'zustand';
-import { makeCity, type City, type Poi } from '../core/city';
+import { makeCity, type City, type Poi, type PoiKind } from '../core/city';
 import { apply, createGame, dayOf, fromSave, hourOf, nearby, poiTitle, rank, riding, stars, step, STEP, toSave, type Cmd, type Ev, type GameState } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { loadPrefs, savePrefs, SaveStore, type Prefs } from '../save/SaveStore';
@@ -18,6 +18,7 @@ export interface Hud {
   day: number; hour: number; stars: number; seen: boolean;
   ride: 'foot' | 'bike' | 'car'; kmh: number; rank: string; bizN: number;
   nearCar: '' | '乗る' | '盗む'; nearPoi: number | null; nearName: string; way: boolean;
+  goal: string; goalKind: PoiKind; // つぎの目標と、その行き先の種類
 }
 export interface Toast { id: number; text: string; tone: string }
 interface Store {
@@ -40,6 +41,7 @@ interface Store {
   set: (p: Partial<Pick<Store, 'panel' | 'bigMap' | 'busted' | 'mini'>>) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   toast: (text: string, tone?: string) => void;
+  guide: () => void;
 }
 
 const prefs0 = loadPrefs();
@@ -53,6 +55,17 @@ let saveT = 0;
 let sirenT = 0;
 let sirenHi = false;
 
+// つぎの目標：いまの持ち物とお金から、1つだけ出す
+function goalOf(s: GameState): [string, PoiKind] {
+  const hasRide = s.cars.some((c) => c.kind === 'mine');
+  if (s.biz.length === 0 && s.cash < b.money.bike && !hasRide) return ['はたらいて お金をつくる', 'conbini'];
+  if (!hasRide) return ['自転車を買う', 'bike'];
+  if (s.biz.length === 0) return [`屋台を出す ¥${b.biz.stall.toLocaleString('ja-JP')}`, s.cash >= b.biz.stall ? 'lot' : 'conbini'];
+  if (s.biz.length < 3) return [`社長まで 事業 ${s.biz.length}/3`, 'lot'];
+  if (s.biz.length < 6) return [`大社長まで 事業 ${s.biz.length}/6`, 'lot'];
+  return ['街いちばんの大社長', 'home'];
+}
+
 function snapshot(): Hud {
   const s = core;
   const car = riding(s);
@@ -62,6 +75,7 @@ function snapshot(): Hud {
     ride: car ? (car.bike ? 'bike' : 'car') : 'foot', kmh: car ? Math.round(Math.abs(car.v) * 3.6) : 0, rank: rank(s), bizN: s.biz.length,
     nearCar: near.car ? (near.car.kind === 'mine' || near.car.kind === 'stolen' ? '乗る' : '盗む') : '',
     nearPoi: near.poi ? near.poi.id : null, nearName: near.poi ? poiTitle(s, near.poi) : '', way: !!s.way,
+    goal: goalOf(s)[0], goalKind: goalOf(s)[1],
   };
 }
 
@@ -179,6 +193,19 @@ export const useGame = create<Store>((set, get) => {
       savePrefs(prefs);
       set({ prefs });
     },
+    // 目標の行き先（いちばん近い、まだ使っていない場所）へ道案内を出す
+    guide: () => {
+      const kind = get().hud.goalKind;
+      let best: Poi | null = null;
+      for (const p of city.pois) {
+        if (p.kind !== kind || core.biz.some((z) => z.poi === p.id)) continue;
+        if (!best || Math.hypot(p.x - core.x, p.y - core.y) < Math.hypot(best.x - core.x, best.y - core.y)) best = p;
+      }
+      if (best) {
+        sfx.tap();
+        get().send({ type: 'way', x: best.x, y: best.y });
+      }
+    },
     toast: (text, tone = '') => {
       const id = toastId++;
       set({ toasts: [...get().toasts.slice(-3), { id, text, tone }] });
@@ -192,7 +219,7 @@ export const poiOf = (id: number): Poi => city.pois[id];
 // 確かめ用（ブラウザのテストから状態を読む・場所へ動かす）
 declare global {
   interface Window {
-    __game?: { state: () => ReturnType<typeof toSave> & { ride: number | null; cars: number }; tp: (x: number, y: number) => void; poi: (kind: string) => Poi | undefined };
+    __game?: { state: () => ReturnType<typeof toSave> & { ride: number | null; cars: number }; tp: (x: number, y: number) => void; poi: (kind: string) => Poi | undefined; clock: (hour: number) => void };
   }
 }
 if (typeof window !== 'undefined') {
@@ -203,5 +230,8 @@ if (typeof window !== 'undefined') {
       core.y = y;
     },
     poi: (kind) => city.pois.find((p) => p.kind === kind),
+    clock: (hour) => {
+      core.clock = Math.floor(core.clock / 1440) * 1440 + hour * 60;
+    },
   };
 }

@@ -42,6 +42,7 @@ export class MapView {
   private carViews = new Map<number, { box: Container; light: Graphics | null; ring: Graphics }>();
   private me = new Container();
   private glows = new Container();
+  private glowWorld = new Container(); // 街と同じ位置・大きさに合わせて、夜の覆いの上に重ねる
   private glowTex!: Texture;
   private glowPool: Sprite[] = [];
   private night = new Graphics();
@@ -100,8 +101,9 @@ export class MapView {
       this.labels.push(sp);
     }
     this.me.addChild(new Graphics().circle(0, 0, 2.5).fill({ color: 0xffffff, alpha: 0.95 }).circle(0, 0, 1.6).fill(0x1b2330).poly([2.2, 0, 0.6, -1.1, 0.6, 1.1]).fill(0xffc94a));
-    this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.me, this.pins, this.glows);
-    this.app.stage.addChild(this.world, this.night);
+    this.world.addChild(base, this.chunkLayer, ...this.labels, this.routeG, this.pedG, this.carLayer, this.me, this.pins);
+    this.app.stage.addChild(this.world, this.night, this.glowWorld);
+    this.glowWorld.addChild(this.glows);
     const s = this.get();
     this.camX = s.x;
     this.camY = s.y;
@@ -224,8 +226,9 @@ export class MapView {
       const wall = mix(BLOCK[b.d], 0x6b6257, 0.24 + deep);
       const roof = mix(BLOCK[b.d], 0x6b6257, 0.12 + deep);
       for (let k = 0; k < b.b.length; k += 4) {
+        const tone = ((k * 7 + b.i * 3 + b.j * 5) % 5) * 0.022; // 建物ごとに、少しだけ濃さを変える
         g.rect(b.b[k], b.b[k + 1], b.b[k + 2], b.b[k + 3]).fill(wall);
-        g.rect(b.b[k] + 0.9, b.b[k + 1] + 0.9, b.b[k + 2] - 1.8, b.b[k + 3] - 2.6).fill(roof);
+        g.rect(b.b[k] + 0.9, b.b[k + 1] + 0.9, b.b[k + 2] - 1.8, b.b[k + 3] - 2.6).fill(mix(roof, tone > 0.07 ? 0x8fa3b8 : 0x6b6257, tone));
       }
     }
     // 道：先にふち、あとから面。細い道→大通りの順に重ねる
@@ -249,6 +252,18 @@ export class MapView {
     for (const [x, y, w, h, t] of rects) if (t >= 2) {
       if (w > h) for (let q = x + 22; q < x + w - 26; q += 14) g.rect(q, y + h / 2 - 0.5, 8, 1).fill({ color: 0xffffff, alpha: 0.85 });
       else for (let q = y + 22; q < y + h - 26; q += 14) g.rect(x + w / 2 - 0.5, q, 1, 8).fill({ color: 0xffffff, alpha: 0.85 });
+    }
+    for (const [x, y, w, h, t] of rects) {
+      if (t === 2) {
+        // 街路樹：大通りの両わきに、間をあけて
+        if (w > h) for (let q = x + 30; q < x + w - 30; q += 34) g.circle(q, y - 4, 2.6).fill(0x9fd08f).circle(q + 17, y + h + 4, 2.6).fill(0x9fd08f);
+        else for (let q = y + 30; q < y + h - 30; q += 34) g.circle(x - 4, q, 2.6).fill(0x9fd08f).circle(x + w + 4, q + 17, 2.6).fill(0x9fd08f);
+      } else if (t === 1) {
+        // 横断歩道：細い道の両はし
+        const n = 4;
+        if (w > h) for (let k = 0; k < n; k++) g.rect(x + 20, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill({ color: 0xd9d4c8, alpha: 0.9 }).rect(x + w - 25, y + 2 + (k * (h - 4)) / n, 5, (h - 4) / n - 1.6).fill({ color: 0xd9d4c8, alpha: 0.9 });
+        else for (let k = 0; k < n; k++) g.rect(x + 2 + (k * (w - 4)) / n, y + 20, (w - 4) / n - 1.6, 5).fill({ color: 0xd9d4c8, alpha: 0.9 }).rect(x + 2 + (k * (w - 4)) / n, y + h - 25, (w - 4) / n - 1.6, 5).fill({ color: 0xd9d4c8, alpha: 0.9 });
+      }
     }
     return g;
   }
@@ -313,6 +328,8 @@ export class MapView {
     const z = this.zoom;
     this.world.scale.set(z);
     this.world.position.set(W / 2 - this.camX * z, H * 0.54 - this.camY * z);
+    this.glowWorld.scale.set(z);
+    this.glowWorld.position.copyFrom(this.world.position);
     const x0 = this.camX - W / 2 / z;
     const x1 = this.camX + W / 2 / z;
     const y0 = this.camY - (H * 0.54) / z;
@@ -405,6 +422,16 @@ export class MapView {
       this.carViews.delete(id);
     }
     if (dark > 0.25 && !car) glow(s.x, s.y, 46, 0xfff0c8, dark * 0.45);
+    if (dark > 0.25) {
+      const NX = c.xs.length;
+      for (let j = 0; j < c.ys.length; j++) {
+        if (c.ys[j] < y0 - 30 || c.ys[j] > y1 + 30) continue;
+        for (let i = 0; i < NX; i++) {
+          if (c.xs[i] < x0 - 30 || c.xs[i] > x1 + 30 || !c.ok[j * NX + i]) continue;
+          glow(c.xs[i], c.ys[j], c.ax[i] || c.ay[j] ? 90 : 56, 0xffcf8a, dark * 0.5);
+        }
+      }
+    }
     for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
 
     // 歩く人
@@ -423,6 +450,6 @@ export class MapView {
 
     // 夜：全体を青く暗くする
     this.night.clear();
-    if (dark > 0.02) this.night.rect(0, 0, W, H).fill({ color: 0x0b1433, alpha: dark * 0.5 });
+    if (dark > 0.02) this.night.rect(0, 0, W, H).fill({ color: 0x0b1433, alpha: dark * 0.56 });
   }
 }

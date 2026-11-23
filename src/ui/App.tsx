@@ -263,6 +263,8 @@ function Game() {
   const action = useGame((s) => s.action);
   const openPoi = useGame((s) => s.openPoi);
   const set = useGame((s) => s.set);
+  const guide = useGame((s) => s.guide);
+  const [moved, setMoved] = useState(false);
   const [stick, setStick] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
   const origin = useRef<{ x: number; y: number; id: number } | null>(null);
 
@@ -287,6 +289,7 @@ function Game() {
       if (e.key === 'e' || e.key === ' ') st.action();
       if (e.key === 'f') st.openPoi();
       if (e.key === 'm') st.set({ bigMap: !st.bigMap });
+      if (e.key.startsWith('Arrow') || 'wasd'.includes(e.key)) setMoved(true);
       sync();
     };
     const up = (e: KeyboardEvent) => {
@@ -321,6 +324,7 @@ function Game() {
     }
     input.mx = dx / 52;
     input.my = dy / 52;
+    if (d > 20 && !moved) setMoved(true);
     setStick({ x: o.x, y: o.y, dx, dy });
   };
   const up = (e: React.PointerEvent) => {
@@ -352,6 +356,9 @@ function Game() {
           {hud.stars > 0 && <span className={`stars ${hud.seen ? 'seen' : ''}`} data-stars={hud.stars}>{'★'.repeat(hud.stars)}<i>{'★'.repeat(5 - hud.stars)}</i></span>}
         </div>
       </header>
+
+      <button className="goal" data-goal onClick={guide}><Icon name="flag" size={15} /><span>{hud.goal}</span></button>
+      {!moved && <div className="howto" data-howto>画面に指を置いて、動かす</div>}
 
       <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>)}</div>
 
