@@ -35,14 +35,14 @@ export function baseQuota(tr: Tr, job: Job): number {
 export const left = (tr: Tr, id: string) => Math.max(0, Math.floor((tr.quota[id] ?? 0) - (tr.used[id] ?? 0)));
 
 // 月の初め：枠を決める（±10% ゆらぐ。ゆらいだあとの数が見える）。客先から届く話を作る
-export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => number, bal: Balance) {
+export function startMonth(tr: Tr, month: number, clients: number[], rnd: () => number, bal: Balance, k: Record<string, number> = {}) {
   tr.used = {};
   tr.q = { sum: 0, n: 0 };
   tr.broken = 0;
   tr.gigs = tr.gigs.filter((g) => g.taken && g.due >= month);
   for (const [id, job] of Object.entries(bal.jobs)) {
     if (job.kind === 'title') continue;
-    tr.quota[id] = Math.round(baseQuota(tr, job) * (0.9 + 0.2 * rnd()));
+    tr.quota[id] = Math.round(baseQuota(tr, job) * (0.9 + 0.2 * rnd()) * (k.all ?? 1) * (k[job.trade] ?? 1)) + (k[id] ?? 0); // k＝景気と出来事の倍率
     if (job.kind !== 'visit' || !clients.length) continue;
     // 客先へ行く仕事は、1件ずつ話として届く
     const have = tr.gigs.filter((g) => g.job === id).length;

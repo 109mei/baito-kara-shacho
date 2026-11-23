@@ -228,3 +228,4 @@ button:disabled { cursor: default; }
 .gig.col { flex-direction: column; align-items: stretch; }
 .gig .btns { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip:disabled { opacity: 0.4; }
+.sheet .line .sub { display: block; font-size: 15px; font-weight: 700; color: var(--sub); }

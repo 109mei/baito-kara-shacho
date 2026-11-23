@@ -30,12 +30,56 @@ export interface Eco {
   infl: number; // 物価（年に 2% 上がる）
   know: Record<string, number>; // 業種ごとの知識（0〜100）
   fatigue: number; // 疲れ（0〜100）
+  cycle: { phase: number; left: number }; // 景気の局面（0 好況・1 後退・2 不況・3 回復）と、残りの月
+  events: { kind: EventKind; month: number }[]; // 予告された出来事（起きる月）
+  fx: EventKind[]; // 今月 起きている出来事
+  insured: boolean; // 保険に入っている
   hist: MonthRec[];
 }
 
 export const newEco = (bal: Balance): Eco => ({
-  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, hist: [],
+  days: 0, credit: bal.credit.start, cap: 1000, capUntil: 0, loans: [], nextLoan: 1, owed: [], tax: [], yearProfit: 0, m: { sales: 0, cost: 0 }, red: 0, closings: 0, plan: 0, infl: 1, know: {}, fatigue: 0, cycle: { phase: 0, left: 8 }, events: [], fx: [], insured: false, hist: [],
 });
+
+// 景気：好況 → 後退 → 不況 → 回復 の順に回る。客と注文、人の集まりやすさ、物件の値段が変わる
+export const PHASES = [
+  { name: '好況', min: 12, max: 18, cust: 1.15, hire: 0.8, estate: 1.1 },
+  { name: '後退', min: 6, max: 9, cust: 1, hire: 1, estate: 1 },
+  { name: '不況', min: 6, max: 12, cust: 0.85, hire: 1.2, estate: 0.8 },
+  { name: '回復', min: 6, max: 9, cust: 1, hire: 1, estate: 0.9 },
+] as const;
+export const phaseOf = (e: Eco) => PHASES[e.cycle.phase];
+// 出来事：どれも1か月前に予告があり、備える手が1つ以上ある
+export type EventKind = 'matUp' | 'road' | 'typhoon' | 'boom';
+export const EVENTS: Record<EventKind, { name: string; hint: string }> = {
+  matUp: { name: '原料の値上がり', hint: '材料が3割、店の原価が1割5分 高くなる。先に材料を買っておける' },
+  road: { name: '道路工事', hint: '店の前を通る人が4分の3になる。保険で売上の減りの半分が戻る' },
+  typhoon: { name: '台風', hint: '店の客が6割になる。片付けの話は増える。保険で売上の減りの半分が戻る' },
+  boom: { name: '手作りの品の流行', hint: '手作りの品の枠が1.5倍になる。作りだめしておける' },
+};
+// 客の数にかかる倍率（景気と、今月の出来事）
+export const custK = (e: Eco) => phaseOf(e).cust * (e.fx.includes('road') ? 0.75 : 1) * (e.fx.includes('typhoon') ? 0.6 : 1);
+// 月の変わり目：景気を進め、予告した出来事を起こし、次の月の出来事を予告する。新聞に出る文を返す
+export function turnMonth(e: Eco, next: number, rnd: () => number, bal: Balance): string[] {
+  const news: string[] = [];
+  e.cycle.left -= 1;
+  if (e.cycle.left <= 0) {
+    e.cycle.phase = (e.cycle.phase + 1) % 4;
+    const p = phaseOf(e);
+    e.cycle.left = p.min + Math.floor(rnd() * (p.max - p.min + 1));
+    news.push(`新聞：景気が「${p.name}」に入った`);
+  } else if (e.cycle.left === 3) news.push(`新聞：3か月後、景気は「${PHASES[(e.cycle.phase + 1) % 4].name}」へ向かう見込み`);
+  e.fx = e.events.filter((v) => v.month <= next).map((v) => v.kind);
+  for (const k of e.fx) news.push(`${EVENTS[k].name}が始まった`);
+  e.events = e.events.filter((v) => v.month > next);
+  if (rnd() < bal.town.eventRate) {
+    const kinds = Object.keys(EVENTS) as EventKind[];
+    const kind = kinds[Math.floor(rnd() * kinds.length)];
+    e.events.push({ kind, month: next + 1 });
+    news.push(`予告：来月、${EVENTS[kind].name}`);
+  }
+  return news;
+}
 
 export const RANKS = ['E', 'D', 'C', 'B', 'A'] as const;
 export type Rank = (typeof RANKS)[number];

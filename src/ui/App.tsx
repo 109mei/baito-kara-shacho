@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKey, poiActions, poiTitle, routesOf, type Act } from '../core/sim';
 import { balance as b } from '../data/schema';
 import { GANGS, turfOf } from '../core/city';
-import { loanOffers, monthlyPay, monthOf, rankOf } from '../core/eco';
+import { EVENTS, loanOffers, monthlyPay, monthOf, phaseOf, rankOf } from '../core/eco';
 import { apartFill, apartIncome, seen as seenStat, type Staff } from '../core/shop';
 import { left, TRADE_NAME, unitsAt, workMins } from '../core/trade';
 import { mateColor, net } from '../net/room';
@@ -383,6 +383,10 @@ function Hub() {
         {tr.titles.map((t, i) => <p key={i} className="line num">発売した{J[t.job].name}　今月 <b>{unitsAt(J[t.job], t, month)}</b>本</p>)}
         {fame.length > 0 && <><h3>知名度</h3><p className="line num">{fame.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{v}</b>　</span>)}</p></>}
         {tr.recv.length > 0 && <><h3>入金の予定</h3>{tr.recv.map((r, i) => <p key={i} className="line num">{r.what}　<b>{yen(r.amount)}</b>（月末）</p>)}</>}
+        <h3>新聞</h3>
+        <p className="line num">景気は「<b>{phaseOf(s.eco).name}</b>」{s.eco.cycle.left <= 3 ? `　あと${s.eco.cycle.left}か月で変わる見込み` : ''}</p>
+        {s.eco.fx.map((k) => <p key={k} className="line" data-fx={k}>今月：<b>{EVENTS[k].name}</b><small className="sub">{EVENTS[k].hint}</small></p>)}
+        {s.eco.events.map((v, i) => <p key={i} className="line" data-event={v.kind}>来月の予告：<b>{EVENTS[v.kind].name}</b><small className="sub">{EVENTS[v.kind].hint}</small></p>)}
         <h3>自分</h3>
         <p className="line num">疲れ <b>{Math.round(s.eco.fatigue)}</b> / 100<span className="bar"><i style={{ width: `${s.eco.fatigue}%` }} className={s.eco.fatigue > 80 ? 'hot' : s.eco.fatigue > 60 ? 'warm' : ''} /></span></p>
         {know.length > 0 && <p className="line num">知識　{know.map(([k, v]) => <span key={k}>{TRADE_NAME[k] ?? k} <b>{Math.floor(v)}</b>　</span>)}</p>}

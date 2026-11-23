@@ -26,6 +26,7 @@ export const BalanceSchema = z.object({
   staff: rec(['market', 'seekers', 'paper', 'site', 'siteFee', 'talk', 'raise', 'quit', 'sign', 'quiet', 'skim', 'skimRate', 'expHours']),
   apart: rec(['price', 'rooms', 'unit', 'upkeep', 'decay', 'repair']),
   permit: rec(['foodFee', 'foodHours']),
+  town: rec(['insure', 'refund', 'eventRate', 'rivalStall', 'rivalShop', 'rivalCut']),
   biz: rec(['stall', 'stallProfit', 'shop', 'shopProfit', 'upgradeFactor', 'levelProfit', 'maxLevel']),
   heat: rec(['perStar', 'decay', 'stealSeen', 'stealUnseen', 'hitPed', 'hitPolice', 'burgleQuiet', 'burgleLoud', 'burgleDay', 'hackFail', 'hackOk', 'rob', 'fine', 'jailHoursPerStar', 'confiscate']),
   police: z.object({ sight: pos, speed: pos, hunterSpeed: pos, catchDist: pos, catchSpeed: pos, catchTime: pos, patrols: n.min(0), chasers: z.array(n.min(0)).length(6), hunters: n.min(0) }),

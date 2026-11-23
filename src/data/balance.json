@@ -390,5 +390,13 @@
   "permit": {
     "foodFee": 10000,
     "foodHours": 8
+  },
+  "town": {
+    "insure": 3000,
+    "refund": 0.5,
+    "eventRate": 0.45,
+    "rivalStall": 60000,
+    "rivalShop": 150000,
+    "rivalCut": 0.2
   }
 }

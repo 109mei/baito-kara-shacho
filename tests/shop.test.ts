@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCity } from '../src/core/city';
-import { applyCount, apartFill, apartIncome, arriveRate, askOne, makeStaff, newFirm, newShop, openConds, seen, serve } from '../src/core/shop';
+import { custK, newEco, PHASES, turnMonth } from '../src/core/eco';
+import { applyCount, apartFill, apartIncome, arriveRate, askOne, makeStaff, newFirm, newShop, openConds, rivalsReact, seen, serve } from '../src/core/shop';
 import { apply, createGame, fromSave, fuzz, poiActions, rank, toSave } from '../src/core/sim';
 import { balance as b } from '../src/data/schema';
 
@@ -181,3 +182,72 @@ describe('資産型（アパート）', () => {
     expect(poiActions(s, city, ap, b).map((x) => x.id)).toEqual(['rentUp', 'rentDown', 'repair']);
   });
 });
+
+describe('街の動き（景気・出来事・ほかの会社）', () => {
+  it('景気は 好況→後退→不況→回復 の順に回る。次の局面は3か月前に新聞に出る', () => {
+    const e = newEco(b);
+    const r = rng(3);
+    const seen2: string[] = [];
+    const news: string[] = [];
+    for (let m = 1; m <= 80; m++) {
+      news.push(...turnMonth(e, m, r, b));
+      if (seen2[seen2.length - 1] !== PHASES[e.cycle.phase].name) seen2.push(PHASES[e.cycle.phase].name);
+    }
+    expect(seen2.slice(0, 5)).toEqual(['好況', '後退', '不況', '回復', '好況']);
+    expect(news.filter((t) => t.includes('3か月後')).length).toBeGreaterThanOrEqual(4);
+    e.cycle.phase = 2;
+    e.fx = [];
+    expect(custK(e)).toBe(0.85);
+  });
+  it('出来事は1か月前に予告され、次の月に始まり、その次の月に終わる', () => {
+    const e = newEco(b);
+    e.events = [{ kind: 'typhoon', month: 5 }];
+    turnMonth(e, 4, () => 0.99, b);
+    expect(e.fx).toEqual([]);
+    const news = turnMonth(e, 5, () => 0.99, b);
+    expect(e.fx).toEqual(['typhoon']);
+    expect(news.some((t) => t.includes('台風'))).toBe(true);
+    expect(custK(e)).toBeCloseTo(PHASES[e.cycle.phase].cust * 0.6);
+    turnMonth(e, 6, () => 0.99, b);
+    expect(e.fx).toEqual([]);
+    const pre = turnMonth(e, 7, () => 0, b); // 出来事が起きる月
+    expect(pre.some((t) => t.startsWith('予告'))).toBe(true);
+    expect(e.events[0].month).toBe(8);
+  });
+  it('保険：台風の月に入っていれば、減った売上の半分が戻る。入っていなければ、その差が月次レポートに出る', () => {
+    const play = (insured: boolean) => {
+      const s = createGame(7, city, b);
+      s.cash = 3000000;
+      s.eco.credit = 250;
+      s.clock = 10 * 60;
+      go(s, lot, 'shop');
+      s.biz[0].aware = 90;
+      s.firm.staff.push({ ...makeStaff(1, rng(2), b), at: lot.id });
+      s.eco.fx = ['typhoon'];
+      s.eco.insured = insured;
+      const ev = monthEnd(s);
+      const rec = ev.find((e) => e.type === 'month');
+      return rec && rec.type === 'month' ? rec.rec : null;
+    };
+    expect(play(true)!.notes.some((t) => t.startsWith('保険で'))).toBe(true);
+    expect(play(false)!.notes.some((t) => t.includes('保険に入っていれば'))).toBe(true);
+    expect(play(true)!.rent - play(false)!.rent).toBe(b.town.insure); // 保険料は、家賃と光熱費に入る
+  });
+  it('競合：値下げには2か月で値段を合わせ、よく売れる店の近くには2か月で店ができる。客が割れる', () => {
+    const z = newShop('stall', lot.id, 0, 0, 0, b);
+    z.aware = 50;
+    const alone = arriveRate(z, 1, b);
+    z.m.sales = b.town.rivalStall + 1;
+    expect(rivalsReact(z, rng(), b)).toEqual([]);
+    expect(rivalsReact(z, rng(), b)[0]).toContain('同じような店');
+    expect(z.rivals).toBe(1);
+    expect(arriveRate(z, 1, b)).toBeCloseTo(alone / 1.2);
+    z.m.sales = 0;
+    z.price = 0.8;
+    const cheap = arriveRate(z, 1, b);
+    rivalsReact(z, rng(), b);
+    expect(rivalsReact(z, rng(), b)[0]).toContain('値段を合わせてきた');
+    expect(arriveRate(z, 1, b)).toBeLessThan(cheap); // 値下げの効き目がなくなる
+  });
+});
+

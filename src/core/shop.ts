@@ -11,6 +11,8 @@ export interface Shop {
   rent: number; deposit: number; // 1日の家賃、預けた保証金（たたむと戻る）
   boss: number; // 任せた店長（人の番号。0＝自分で見る）
   seen: number; // 最後に自分で店を見た日
+  rivals: number; rivalPrice: number; // 近くの競合の数と、その値段（こちらの値下げや繁盛に、2か月ほど遅れて反応する）
+  cut: number; hot: number; // 値下げが続いた月、よく売れた月
   d: Tally; m: Tally; // きのう（最後に開けた日）と、今月の数字
 }
 export interface Staff {
@@ -41,11 +43,11 @@ export const arriveRate = (z: Shop, traffic: number, bal: Balance) => {
   const S = bal.shop;
   const flow = (z.type === 'stall' ? S.stallFlow : S.shopFlow) / S.hours; // 1時間に前を通る人
   const notice = z.aware / 100; // 気づく割合
-  const enter = clamp(0.1 * (1 / z.price) * (z.repute / 50), 0, 0.6); // 入る割合 ＝ 10% ×（相場 ÷ 値段）×（評判 ÷ 50）
+  const enter = clamp((0.1 * (z.rivalPrice / z.price) * (z.repute / 50)) / (1 + 0.2 * z.rivals), 0, 0.6); // 入る割合 ＝ 10% ×（相場 ÷ 値段）×（評判 ÷ 50）。競合がいると割れる
   return flow * traffic * notice * enter;
 };
 // 店を hours 時間 開ける。perf＝店の回り具合（自分で見ていれば 1）
-export function serve(z: Shop, hours: number, hands: Hand[], traffic: number, perf: number, bal: Balance): Tally {
+export function serve(z: Shop, hours: number, hands: Hand[], traffic: number, perf: number, bal: Balance, costK = 1): Tally {
   const S = bal.shop;
   const unit = z.type === 'stall' ? S.stallUnit : S.shopUnit;
   const rate = z.type === 'stall' ? S.stallCost : S.shopCost;
@@ -58,12 +60,12 @@ export function serve(z: Shop, hours: number, hands: Hand[], traffic: number, pe
   const unhappy = lost + Math.round((cust * Math.max(0, 50 - service * perf)) / 100);
   z.repute = clamp(z.repute + (cust - unhappy) * S.happy - unhappy * S.unhappy, 0, 100);
   z.aware = clamp(z.aware + cust * S.mouth, 0, 100);
-  const t: Tally = { cust, lost, sales: Math.round(cust * unit * z.price), cost: Math.round(cust * unit * rate) };
+  const t: Tally = { cust, lost, sales: Math.round(cust * unit * z.price), cost: Math.round(cust * unit * rate * costK) };
   for (const k of ['cust', 'lost', 'sales', 'cost'] as const) z.m[k] += t[k];
   return t;
 }
 // 人がいる店の1日。店長に任せた店の出来 ＝ 60 + まとめる力 × 0.6（%）。任せていない店は、その日に見ていないと回りが落ちる
-export function dayShop(z: Shop, firm: Firm, traffic: number, day: number, bal: Balance): Tally {
+export function dayShop(z: Shop, firm: Firm, traffic: number, day: number, bal: Balance, costK = 1): Tally {
   const S = bal.shop;
   const crew = firm.staff.filter((p) => p.at === z.poi);
   if (!crew.length) return (z.d = zero());
@@ -72,7 +74,7 @@ export function dayShop(z: Shop, firm: Firm, traffic: number, day: number, bal: 
   const capHour = z.type === 'stall' ? S.stallCap : S.shopCap;
   const hands = crew.map((p) => ({ cap: capHour * (0.5 + 0.5 * p.exp) * (0.6 + p.skill / 250), service: p.service }));
   for (const p of crew) p.exp = Math.min(1, p.exp + (S.hours / bal.staff.expHours) * p.grow);
-  return (z.d = serve(z, S.hours, hands, traffic, perf, bal));
+  return (z.d = serve(z, S.hours, hands, traffic, perf, bal, costK));
 }
 // 開くための条件（審査に運はない）
 export interface Cond { label: string; ok: boolean }
@@ -86,7 +88,29 @@ export function openConds(type: 'stall' | 'shop', traffic: number, rankIdx: numb
   const deposit = rent * bal.time.daysPerMonth * months;
   return { setup: bal.biz.shop, deposit, rent, conds: [{ label: `保証金 家賃の${months}か月分 ${yen(deposit)}${rankIdx >= 1 ? '' : '（信用が D になると6か月分）'}`, ok: cash >= deposit + bal.biz.shop }, { label: `内装の代金 ${yen(bal.biz.shop)}（表のお金）`, ok: cash >= deposit + bal.biz.shop }] };
 }
-export const newShop = (type: 'stall' | 'shop', poi: number, rent: number, deposit: number, day: number, bal: Balance): Shop => ({ poi, type, price: 1, aware: bal.shop.awareStart, repute: 50, rent, deposit, boss: 0, seen: day, d: zero(), m: zero() });
+export const newShop = (type: 'stall' | 'shop', poi: number, rent: number, deposit: number, day: number, bal: Balance): Shop => ({ poi, type, price: 1, aware: bal.shop.awareStart, repute: 50, rent, deposit, boss: 0, seen: day, rivals: 0, rivalPrice: 1, cut: 0, hot: 0, d: zero(), m: zero() });
+
+// 競合の反応（月末）：値下げには2か月で値段を合わせ、よく売れる店の近くには2か月で店を出し、評判で負けると撤退する
+export function rivalsReact(z: Shop, rnd: () => number, bal: Balance): string[] {
+  const out: string[] = [];
+  const who = z.type === 'stall' ? '屋台' : '店';
+  z.cut = z.price < z.rivalPrice - 0.05 ? z.cut + 1 : 0;
+  if (z.cut >= 2 && z.rivals > 0) {
+    z.rivalPrice = z.price;
+    z.cut = 0;
+    out.push(`${who}の近くの競合が、値段を合わせてきた`);
+  }
+  z.hot = z.m.sales > (z.type === 'stall' ? bal.town.rivalStall : bal.town.rivalShop) ? z.hot + 1 : 0;
+  if (z.hot >= 2 && z.rivals < 3) {
+    z.rivals += 1;
+    z.hot = 0;
+    out.push(`${who}の近くに、同じような店ができた`);
+  } else if (z.rivals > 0 && z.repute >= 80 && rnd() < 0.3) {
+    z.rivals -= 1;
+    out.push(`${who}の近くの競合が、撤退した`);
+  }
+  return out;
+}
 
 // ---- 人：集まらない・見抜けない・辞める。どれも、起きる前に兆しが見える
 const NAMES = ['佐藤', '鈴木', '高橋', '田中', '伊藤', '渡辺', '山本', '中村', '小林', '加藤', '吉田', '山田', '松本', '井上', '木村', '林', '清水', '山口'];
@@ -99,16 +123,16 @@ export function makeStaff(id: number, rnd: () => number, bal: Balance): Staff {
   return { id, name: `${NAMES[Math.floor(rnd() * NAMES.length)]}さん`, bio, skill, service, honest: r(15, 95), lead: r(10, 95), grow: Math.round((0.5 + 1.5 * rnd()) * 10) / 10, ask, wage: ask, mood: 0, exp: 0, at: -1, see: [0, 0, 0], months: 0, quiet: 0 };
 }
 // 月の応募の数 ＝ 仕事を探している人 × 手段の届く割合 ×（出した日給 ÷ 相場）の2乗。相場より低いと、さらに5分の1
-export const applyCount = (post: NonNullable<Firm['post']>, bal: Balance) => {
+export const applyCount = (post: NonNullable<Firm['post']>, bal: Balance, hireK = 1) => {
   const T = bal.staff;
   const k = post.wage / T.market;
-  return Math.min(6, Math.round(T.seekers * (post.site ? T.site : T.paper) * k * k * (k < 1 ? 0.2 : 1)));
+  return Math.min(6, Math.round(T.seekers * hireK * (post.site ? T.site : T.paper) * k * k * (k < 1 ? 0.2 : 1)));
 };
-export function recruit(firm: Firm, rnd: () => number, bal: Balance) {
+export function recruit(firm: Firm, rnd: () => number, bal: Balance, hireK = 1) {
   firm.pool = [];
   firm.asked = {};
   if (!firm.post) return;
-  const n = applyCount(firm.post, bal);
+  const n = applyCount(firm.post, bal, hireK);
   for (let i = 0; i < n; i++) firm.pool.push(makeStaff(firm.nextStaff++, rnd, bal));
 }
 // 面接：質問は3つ。1つ使うと ±10 の幅で見え、同じ項目に2つ使うと ±3 まで狭まる。聞かなかった項目は見えない
@@ -162,7 +186,7 @@ export function monthStaff(firm: Firm, shops: Shop[], rnd: () => number, bal: Ba
 export const wagesOf = (firm: Firm, bal: Balance) => firm.staff.reduce((a, p) => a + p.wage, 0) * bal.time.daysPerMonth;
 
 // ---- 資産型：月の収入 ＝ 単価 × 埋まっている割合 − 維持費
-export const apartPrice = (traffic: number, bal: Balance) => Math.round((bal.apart.price * (0.6 + 0.4 * traffic)) / 10000) * 10000;
+export const apartPrice = (traffic: number, bal: Balance, estateK = 1) => Math.round((bal.apart.price * (0.6 + 0.4 * traffic) * estateK) / 10000) * 10000;
 export const apartFill = (a: Apart, traffic: number) => clamp((Math.min(100, 55 * traffic) / 100) * (1 / a.rent) * a.state * 1.4, 0, 1); // 立地 ×（相場 ÷ 値段）× 状態
 export const apartIncome = (a: Apart, traffic: number, bal: Balance) => Math.round(bal.apart.rooms * bal.apart.unit * a.rent * apartFill(a, traffic) - bal.apart.upkeep);
 export const repairCost = (a: Apart, bal: Balance) => Math.round(((1 - a.state) * a.paid * bal.apart.repair) / 1000) * 1000;
